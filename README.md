@@ -3,8 +3,9 @@
 Telegram-бот для сбора статистики работы службы безопасности (СБ) компании и формирования Excel-отчётов за неделю или месяц по запросу.
 
 **Бот:** [@UnitSecurity_analytics_bot](https://t.me/UnitSecurity_analytics_bot)
-**Статус:** дизайн утверждён, ждём доступ к Teamly External API для старта имплементации.
+**Статус:** MVP Telegram готов (polling, событий пишутся в YDB). Excel-отчёт, Teamly и деплой — в плане 2.
 **Дизайн-документ:** [docs/superpowers/specs/2026-05-24-security-analytics-bot-design.md](docs/superpowers/specs/2026-05-24-security-analytics-bot-design.md)
+**План MVP:** [docs/superpowers/plans/2026-05-27-mvp-telegram.md](docs/superpowers/plans/2026-05-27-mvp-telegram.md)
 **Референс:** [work_analyst](https://github.com/sonnneiko/work_analyst) (@analyst_unit_bot)
 
 ---
@@ -88,25 +89,34 @@ node-cron (23:50 МСК)   → TeamlySource   → teamly_daily_stats (snapshots)
 | Logger | pino + pino-pretty |
 | Деплой | Yandex Cloud Serverless Container |
 
+## Запуск локально (MVP)
+
+1. Скопировать `.env.example` → `.env` и заполнить:
+   - `BOT_TOKEN` — из @BotFather
+   - `YDB_*` — endpoint, database path, путь к SA-ключу (см. ниже)
+   - `INITIAL_SB_USERS` — JSON-массив сотрудников
+   - `BOT_ADMINS` — JSON-массив telegram_id с доступом без сбора статистики
+2. Положить ключ сервисного аккаунта в `./secrets/ydb-sa-key.json` (директория в `.gitignore`).
+3. `npm install`
+4. `npm run dev` — поднимет бот в polling-режиме. На старте бот сам накатит миграции и забутстрапит `INITIAL_SB_USERS` в `sb_employees`.
+
+Yandex Cloud-ресурсы для MVP уже подготовлены:
+- YDB: `security-analytics-bot-db` (folder `vm-accounting`, id `etn5kgqrt24j7cvb0ea4`)
+- Service account: `security-analytics-bot-sa` с ролью `ydb.editor` на этой базе
+
 ## ENV-переменные
 
 | Переменная | Обязательная | Описание |
 |---|---|---|
 | `BOT_TOKEN` | да | Telegram bot token |
-| `BOT_MODE` | да | `polling` или `webhook` |
-| `BOT_WEBHOOK` | webhook only | Публичный URL для Telegram |
-| `BOT_WEBHOOK_SECRET` | webhook only | Secret token |
-| `YDB_ENDPOINT` | да | YDB endpoint |
-| `YDB_DATABASE` | да | YDB database path |
+| `YDB_ENDPOINT` | да | YDB endpoint (например `grpcs://ydb.serverless.yandexcloud.net:2135`) |
+| `YDB_DATABASE` | да | YDB database path (`/ru-central1/<cloud>/<db_id>`) |
 | `YDB_SA_KEY_FILE` | да | Путь к service account ключу |
-| `TEAMLY_API_BASE` | да | URL базы API |
-| `TEAMLY_API_TOKEN` | да | Bearer-токен |
-| `INITIAL_SB_USERS` | да | JSON-массив сотрудников для bootstrap первого запуска |
+| `INITIAL_SB_USERS` | да | JSON-массив `{telegram_id, name, teamly_user_id?}` для bootstrap первого запуска |
 | `BOT_ADMINS` | нет | JSON-массив telegram_id с доступом, но БЕЗ сбора статистики |
-| `SERVER_HOST` | webhook only | По умолчанию `0.0.0.0` |
-| `SERVER_PORT` | webhook only | По умолчанию `80` |
 | `LOG_LEVEL` | нет | По умолчанию `info` |
-| `DEBUG` | нет | По умолчанию `false` |
+| `TEAMLY_*` | (план 2) | См. дизайн-документ |
+| `BOT_MODE`, `BOT_WEBHOOK*`, `SERVER_*` | (план 2) | Webhook-режим и HTTP-сервер появятся в плане 2 (вместе с деплоем) |
 
 ## Что НЕ делаем (явные исключения из скоупа MVP)
 
@@ -119,16 +129,20 @@ node-cron (23:50 МСК)   → TeamlySource   → teamly_daily_stats (snapshots)
 - ❌ Webhook от Teamly — не нужен при готовых агрегатах.
 - ❌ Mail.ru в MVP — phase 2.
 
-## Текущий статус и блокеры
+## Текущий статус
 
-**Сделано:**
-- Дизайн-документ утверждён (см. [спек](docs/superpowers/specs/2026-05-24-security-analytics-bot-design.md)).
-- Бот создан в @BotFather: `@UnitSecurity_analytics_bot`.
-- Собраны Telegram-ID сотрудников СБ.
+**Сделано в MVP (план 1):**
+- YDB-база `security-analytics-bot-db` + сервисный аккаунт.
+- Миграции трёх таблиц: `sb_employees`, `trigger_chats`, `telegram_events`.
+- Бот в polling-режиме: bootstrap `INITIAL_SB_USERS`, команды `/start`, `/add_sb`, `/remove_sb`, `/list_sb`, `/add_trigger_chat`, `/remove_trigger_chat`, `/list_trigger_chats`.
+- `TelegramSource`: сообщения / эмодзи-реакции / `trigger_reply` сотрудников СБ из trigger-чатов пишутся в `telegram_events`.
+- `/report` — заглушка (Excel-сборка в плане 2).
+- 5 юнит-тестов на event-builder (TDD).
 
-**Блокирует имплементацию Teamly-части:**
-1. Доступ к Teamly External API (требуется тариф Business/Enterprise) + Bearer-токен.
-2. Уточнение, отдаёт ли API цифры «за конкретный день» или только totals (от этого зависит реализация `stats-fetcher.ts`, план B заложен в спеке).
-3. `teamly_user_id` для Ани и Светланы — получим вместе с токеном.
-
-Telegram-часть можно начинать без этих ответов.
+**В работе на план 2 (Teamly + Excel + cron + webhook + деплой):**
+1. Доступ к Teamly External API (тариф Business/Enterprise) + Bearer-токен — частично есть (см. `.env`).
+2. Уточнение, отдаёт ли API цифры «за конкретный день» или только totals.
+3. `teamly_user_id` для Ани и Светланы.
+4. `ReportBuilder` (ExcelJS, 3 листа).
+5. HTTP-сервер (Hono) + webhook-режим.
+6. Деплой в Yandex Cloud Serverless Container.
