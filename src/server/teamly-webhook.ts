@@ -23,6 +23,10 @@ export function teamlyWebhookRoute(secret: string, source: TeamlySource): Hono {
     } catch {
       return c.body(null, 400)
     }
+    logger.debug(
+      { entityType: raw.entityType, action: raw.action, entityId: raw.entityId },
+      'teamly webhook received',
+    )
     const accepted = parsePayload(raw)
     if (accepted) queue.push(accepted)
     return c.body(null, 200)
