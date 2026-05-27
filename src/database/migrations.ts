@@ -42,6 +42,38 @@ const MIGRATIONS: { name: string; ddl: string }[] = [
       )
     `,
   },
+  {
+    name: '004_teamly_events',
+    ddl: `
+      CREATE TABLE IF NOT EXISTS teamly_events (
+        event_id         Utf8,
+        employee_id      Uint64,
+        teamly_user_id   Utf8,
+        event_type       Utf8,
+        entity_id        Utf8,
+        container_id     Utf8,
+        occurred_at      Timestamp,
+        payload          Json,
+        PRIMARY KEY (event_id),
+        INDEX idx_employee_time GLOBAL ON (employee_id, occurred_at)
+      )
+    `,
+  },
+  {
+    name: '005_teamly_tokens',
+    ddl: `
+      CREATE TABLE IF NOT EXISTS teamly_tokens (
+        id                   Utf8,
+        access_token         Utf8,
+        refresh_token        Utf8,
+        access_expires_at    Timestamp,
+        refresh_expires_at   Timestamp,
+        cluster_domain       Utf8,
+        updated_at           Timestamp,
+        PRIMARY KEY (id)
+      )
+    `,
+  },
 ]
 
 export async function runMigrations(driver: Driver): Promise<void> {
