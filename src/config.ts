@@ -1,33 +1,42 @@
 import 'dotenv/config'
+import * as v from 'valibot'
 
-export type SbEmployee = { telegram_id: number; name: string }
+const SbEmployeeSchema = v.object({
+  telegram_id: v.number(),
+  name: v.string(),
+  teamly_user_id: v.optional(v.string()),
+})
 
-function required(key: string): string {
-  const v = process.env[key]
-  if (!v) throw new Error(`Missing required env: ${key}`)
-  return v
+export type SbEmployee = v.InferOutput<typeof SbEmployeeSchema>
+
+function jsonArray<TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>>(
+  itemSchema: TSchema,
+) {
+  return v.pipe(
+    v.string(),
+    v.transform((raw) => JSON.parse(raw) as unknown),
+    v.array(itemSchema),
+  )
 }
 
-function parseJsonArray<T>(key: string, fallback?: T[]): T[] {
-  const raw = process.env[key]
-  if (!raw) {
-    if (fallback !== undefined) return fallback
-    throw new Error(`Missing required env: ${key}`)
-  }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch (e) {
-    throw new Error(`Invalid JSON in env ${key}: ${(e as Error).message}`)
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error(`Env ${key} must be a JSON array`)
-  }
-  return parsed as T[]
-}
+const ConfigSchema = v.object({
+  botToken: v.pipe(v.string(), v.minLength(10)),
+  sbEmployees: jsonArray(SbEmployeeSchema),
+  botAdmins: v.optional(jsonArray(v.number()), '[]'),
+  ydbEndpoint: v.pipe(v.string(), v.startsWith('grpcs://')),
+  ydbDatabase: v.pipe(v.string(), v.startsWith('/')),
+  ydbSaKeyFile: v.string(),
+  logLevel: v.optional(v.picklist(['trace', 'debug', 'info', 'warn', 'error']), 'info'),
+})
 
-export const config = {
-  botToken: required('BOT_TOKEN'),
-  sbEmployees: parseJsonArray<SbEmployee>('INITIAL_SB_USERS'),
-  botAdmins: parseJsonArray<number>('BOT_ADMINS', []),
-}
+export type Config = v.InferOutput<typeof ConfigSchema>
+
+export const config: Config = v.parse(ConfigSchema, {
+  botToken: process.env.BOT_TOKEN,
+  sbEmployees: process.env.INITIAL_SB_USERS,
+  botAdmins: process.env.BOT_ADMINS,
+  ydbEndpoint: process.env.YDB_ENDPOINT,
+  ydbDatabase: process.env.YDB_DATABASE,
+  ydbSaKeyFile: process.env.YDB_SA_KEY_FILE,
+  logLevel: process.env.LOG_LEVEL,
+})
