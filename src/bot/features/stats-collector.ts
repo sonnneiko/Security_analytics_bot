@@ -59,23 +59,31 @@ export function registerStatsCollector(bot: Bot<AppContext>): void {
     return next()
   })
 
-  // эмодзи-реакции
+  // эмодзи-реакции (включая custom_emoji от Premium-пользователей и paid-реакции)
   bot.on('message_reaction', async (ctx, next) => {
     if (!ctx.chat || !ctx.messageReaction) return next()
     const r = ctx.messageReaction
     const userId = r.user?.id
     if (!userId) return next()
 
-    // считаем только «появившиеся» эмодзи (new_reaction), игнорируем снятые
+    // считаем только «появившиеся» (new_reaction), снятые игнорируем
     for (const reaction of r.new_reaction) {
-      if (reaction.type !== 'emoji') continue
+      const emoji =
+        reaction.type === 'emoji'
+          ? reaction.emoji
+          : reaction.type === 'custom_emoji'
+            ? `custom:${reaction.custom_emoji_id}`
+            : reaction.type === 'paid'
+              ? 'paid'
+              : null
+      if (emoji === null) continue
       await ctx.deps.telegramSource.handleIncomingEvent({
         kind: 'reaction',
         chatId: ctx.chat.id,
         messageId: r.message_id,
         fromId: userId,
         date: new Date(r.date * 1000),
-        emoji: reaction.emoji,
+        emoji,
       })
     }
     return next()
