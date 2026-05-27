@@ -27,21 +27,21 @@ Telegram-бот для сбора статистики работы службы
 | Источник | Что собираем | Как |
 |---|---|---|
 | **Telegram trigger-чаты** | сообщения, эмодзи-реакции, ответы (reply) на внешние сообщения | бот сидит в чатах, события приходят в реальном времени через webhook |
-| **Teamly** (корпоративная вики) | создано / просмотрено / прокомментировано карточек | ежедневный snapshot готовых агрегатов через Teamly External API |
+| **Teamly** (корпоративная вики) | создал статью/карточку, оставил комментарий | webhook event-stream через Teamly External API; «просмотрел» через API недоступно и в отчёт не входит |
 | **Mail.ru** *(phase 2)* | активность в личных + общих ящиках СБ | IMAP с app-паролем (в MVP только заглушка) |
 
 ## Архитектура (коротко)
 
 ```
-Telegram → Hono webhook → grammY → TelegramSource → telegram_events (event-stream)
-node-cron (23:50 МСК)   → TeamlySource   → teamly_daily_stats (snapshots)
+Telegram → grammY (polling в dev / webhook в prod) → TelegramSource → telegram_events
+Teamly   → Hono webhook /teamly/webhook/<secret>    → TeamlySource   → teamly_events
 /report → ReportBuilder → ExcelJS → файл в ЛС
 ```
 
 Ключевые решения:
 - **Слой `DataSource`** изолирует источники друг от друга — упрощает добавление Mail в phase 2.
-- **Асимметрия хранения:** Telegram → events, Teamly → daily snapshots (Teamly отдаёт готовые агрегаты, фейковые «события» из поллинга были бы шумом).
-- **Только webhook на проде**, polling — в dev.
+- **Оба источника — event-stream.** В External API Teamly нет готовых агрегатов активности юзеров (изначально планировался daily-snapshot, оказалось не реализуемо — см. дизайн-док).
+- **Только webhook для Telegram на проде**, polling — в dev.
 - **Все `sb_employees` равны** — без админов/супер-админов внутри СБ.
 - **Отдельная роль `BOT_ADMINS`** — у тестера/владельца (Соня) полный доступ к командам, но статистика по нему НЕ собирается.
 
@@ -68,7 +68,7 @@ node-cron (23:50 МСК)   → TeamlySource   → teamly_daily_stats (snapshots)
 Три листа: **детали → свод → общий итог**.
 
 1. **«По чатам Telegram»** — группировка по сотруднику, чаты внутри, итого по сотруднику, общий итог.
-2. **«По сотрудникам»** — сводная таблица: TG (ответы / уник. триггеры / реакции) + Teamly (создал / просмотрел / комментариев).
+2. **«По сотрудникам»** — сводная таблица: TG (ответы / уник. триггеры / реакции) + Teamly (создал / комментариев).
 3. **«Итоги»** — одна сводная цифра по каждому показателю за период.
 
 Имена файлов:
@@ -115,8 +115,14 @@ Yandex Cloud-ресурсы для MVP уже подготовлены:
 | `INITIAL_SB_USERS` | да | JSON-массив `{telegram_id, name, teamly_user_id?}` для bootstrap первого запуска |
 | `BOT_ADMINS` | нет | JSON-массив telegram_id с доступом, но БЕЗ сбора статистики |
 | `LOG_LEVEL` | нет | По умолчанию `info` |
-| `TEAMLY_*` | (план 2) | См. дизайн-документ |
-| `BOT_MODE`, `BOT_WEBHOOK*`, `SERVER_*` | (план 2) | Webhook-режим и HTTP-сервер появятся в плане 2 (вместе с деплоем) |
+| `SERVER_PORT` | нет | Порт HTTP-сервера для Teamly webhook, по умолчанию `8080` |
+| `TEAMLY_SLUG` | для Teamly | Slug тенанта (напр. `unitpay`) |
+| `TEAMLY_CLIENT_ID` | для Teamly | UUID интеграции в Teamly UI |
+| `TEAMLY_CLIENT_SECRET` | для Teamly | Секретный ключ интеграции |
+| `TEAMLY_REDIRECT_URI` | для Teamly | Должен совпадать с настройкой интеграции |
+| `TEAMLY_AUTH_CODE` | первый запуск | Одноразовый код. После того как в БД сохранились токены — удалить из env |
+| `TEAMLY_WEBHOOK_SECRET` | для Teamly | Случайная строка ≥32 символов в URL webhook'a |
+| `BOT_MODE`, `BOT_WEBHOOK*` | (план 2) | Webhook-режим Telegram появится в плане 2 (вместе с деплоем) |
 
 ## Что НЕ делаем (явные исключения из скоупа MVP)
 
@@ -126,7 +132,7 @@ Yandex Cloud-ресурсы для MVP уже подготовлены:
 - ❌ Админы/супер-админы — все `sb_employees` равны.
 - ❌ Автоматическая рассылка отчётов по cron — только on-demand через `/report`.
 - ❌ Отслеживание статусов карточек Teamly и времени в работе.
-- ❌ Webhook от Teamly — не нужен при готовых агрегатах.
+- ❌ Метрика «Просмотрел» по Teamly — её нет в External API.
 - ❌ Mail.ru в MVP — phase 2.
 
 ## Текущий статус
@@ -139,10 +145,9 @@ Yandex Cloud-ресурсы для MVP уже подготовлены:
 - `/report` — заглушка (Excel-сборка в плане 2).
 - 5 юнит-тестов на event-builder (TDD).
 
-**В работе на план 2 (Teamly + Excel + cron + webhook + деплой):**
-1. Доступ к Teamly External API (тариф Business/Enterprise) + Bearer-токен — частично есть (см. `.env`).
-2. Уточнение, отдаёт ли API цифры «за конкретный день» или только totals.
-3. `teamly_user_id` для Ани и Светланы.
-4. `ReportBuilder` (ExcelJS, 3 листа).
-5. HTTP-сервер (Hono) + webhook-режим.
-6. Деплой в Yandex Cloud Serverless Container.
+**В работе на план 2 (Teamly + Excel + Telegram-webhook + деплой):**
+1. Teamly event-stream (article.create + comment.create) через Hono webhook → `teamly_events`. **Готово** (см. `docs/superpowers/specs/2026-05-27-teamly-integration-design.md`). Перед прод-запуском — провести спайк по `docs/superpowers/plans/2026-05-27-teamly-integration.md` Chunk 0 для подтверждения недокументированного эндпоинта `/api/v1/wiki/ql/article`.
+2. `teamly_user_id` для Ани и Светланы — заполнить через `/add_sb` или `INITIAL_SB_USERS`.
+3. `ReportBuilder` (ExcelJS, 3 листа).
+4. Telegram webhook-режим (сейчас только polling).
+5. Деплой в Yandex Cloud Serverless Container.

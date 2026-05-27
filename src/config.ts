@@ -27,6 +27,13 @@ const ConfigSchema = v.object({
   ydbDatabase: v.pipe(v.string(), v.startsWith('/')),
   ydbSaKeyFile: v.string(),
   logLevel: v.optional(v.picklist(['trace', 'debug', 'info', 'warn', 'error']), 'info'),
+  serverPort: v.optional(v.pipe(v.string(), v.transform(Number), v.number()), '8080'),
+  teamlySlug: v.optional(v.string()),
+  teamlyClientId: v.optional(v.string()),
+  teamlyClientSecret: v.optional(v.string()),
+  teamlyRedirectUri: v.optional(v.string()),
+  teamlyAuthCode: v.optional(v.string()),
+  teamlyWebhookSecret: v.optional(v.string()),
 })
 
 export type Config = v.InferOutput<typeof ConfigSchema>
@@ -39,4 +46,11 @@ export const config: Config = v.parse(ConfigSchema, {
   ydbDatabase: process.env.YDB_DATABASE,
   ydbSaKeyFile: process.env.YDB_SA_KEY_FILE,
   logLevel: process.env.LOG_LEVEL,
+  serverPort: process.env.SERVER_PORT,
+  teamlySlug: process.env.TEAMLY_SLUG,
+  teamlyClientId: process.env.TEAMLY_CLIENT_ID,
+  teamlyClientSecret: process.env.TEAMLY_CLIENT_SECRET,
+  teamlyRedirectUri: process.env.TEAMLY_REDIRECT_URI,
+  teamlyAuthCode: process.env.TEAMLY_AUTH_CODE,
+  teamlyWebhookSecret: process.env.TEAMLY_WEBHOOK_SECRET,
 })

@@ -4,7 +4,11 @@ import { getDriver, closeDriver } from './database/client.js'
 import { runMigrations } from './database/migrations.js'
 import { upsertEmployee, listEmployees, isEmployee } from './database/queries/employees.js'
 import { isTriggerChat } from './database/queries/trigger-chats.js'
+import { getToken, saveToken } from './database/queries/teamly-tokens.js'
 import { TelegramSource } from './sources/telegram/telegram-source.js'
+import { TeamlyApi, type TokenStore } from './sources/teamly/teamly-api.js'
+import { TeamlySource } from './sources/teamly/teamly-source.js'
+import { startServer } from './server/index.js'
 import { createBot } from './bot/index.js'
 import type { AppDeps } from './bot/context.js'
 
@@ -38,6 +42,14 @@ async function main() {
   })
   await telegramSource.init()
 
+  const teamlySource = await initTeamlySource(driver, rows)
+
+  const server = startServer({
+    port: config.serverPort,
+    teamlyWebhookSecret: teamlySource ? config.teamlyWebhookSecret ?? null : null,
+    teamlySource,
+  })
+
   const deps: AppDeps = { driver, telegramSource, sbEmployeeIds, botAdminIds }
   const bot = createBot(config.botToken, deps)
 
@@ -45,6 +57,7 @@ async function main() {
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'shutting down')
+    await server.close().catch((err) => logger.error({ err }, 'server close failed'))
     await bot.stop()
     await closeDriver()
     process.exit(0)
@@ -56,6 +69,62 @@ async function main() {
     allowed_updates: ['message', 'message_reaction', 'callback_query'],
     onStart: (info) =>
       logger.info({ bot: info.username, sb: sbEmployeeIds.size }, 'bot started'),
+  })
+}
+
+async function initTeamlySource(
+  driver: Awaited<ReturnType<typeof getDriver>>,
+  employees: Awaited<ReturnType<typeof listEmployees>>,
+): Promise<TeamlySource | null> {
+  const cfgComplete =
+    config.teamlySlug &&
+    config.teamlyClientId &&
+    config.teamlyClientSecret &&
+    config.teamlyRedirectUri
+  if (!cfgComplete) {
+    logger.info('teamly config absent — source disabled')
+    return null
+  }
+
+  const tokenStore: TokenStore = {
+    get: () => getToken(driver),
+    save: (row) => saveToken(driver, row),
+  }
+  const api = new TeamlyApi(
+    {
+      slug: config.teamlySlug!,
+      clientId: config.teamlyClientId!,
+      clientSecret: config.teamlyClientSecret!,
+      redirectUri: config.teamlyRedirectUri!,
+    },
+    tokenStore,
+  )
+
+  const existing = await getToken(driver)
+  if (existing) {
+    logger.info('teamly tokens loaded from db')
+  } else if (config.teamlyAuthCode) {
+    try {
+      await api.exchangeCode(config.teamlyAuthCode)
+      logger.info('teamly auth bootstrapped')
+    } catch (err) {
+      logger.error({ err }, 'teamly bootstrap failed: integration disabled')
+      return null
+    }
+  } else {
+    logger.warn('teamly disabled: no tokens and no TEAMLY_AUTH_CODE')
+    return null
+  }
+
+  const teamlyByEmployee = new Map<string, number>()
+  for (const r of employees) {
+    if (r.teamly_user_id) teamlyByEmployee.set(r.teamly_user_id, r.telegram_id)
+  }
+  if (teamlyByEmployee.size === 0) {
+    logger.warn('teamly source enabled but no sb_employees have teamly_user_id — events will all be dropped')
+  }
+  return new TeamlySource(driver, api, {
+    resolveTelegramId: (teamlyId) => teamlyByEmployee.get(teamlyId) ?? null,
   })
 }
 
