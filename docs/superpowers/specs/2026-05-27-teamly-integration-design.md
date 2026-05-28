@@ -1,7 +1,20 @@
 # Teamly-интеграция: дизайн
 
-**Дата:** 2026-05-27
+**Дата:** 2026-05-27 (спайк-результаты добавлены 2026-05-28)
 **Контекст:** план 2 (Teamly + Excel + cron + webhook + деплой) из общего дизайн-документа `2026-05-24-security-analytics-bot-design.md`. Этот документ заменяет Teamly-часть в исходном дизайне.
+
+## ⚠️ Результаты спайка (2026-05-28) — проверено на боевом тенанте
+
+Гипотеза «карточка умной таблицы = `article.create`» **опровергнута**. Эмпирика:
+
+1. **Создание карточки приходит как `tbd.body.create`** (не `article.create`). Payload: только `entityId` + `content.containerId` (id таблицы). **Автора в payload нет.** Дополнительно прилетает `tbd.body.publish` (игнорируем — не `create`).
+2. **Но строка читается через тот же article-эндпоинт:** `POST {clusterDomain}/api/v1/wiki/ql/article` с `{"query":{"__filter":{"id":"<entityId>"},"id":true,"title":true,"author":{"id":true,"fullName":true}}}` → возвращает `{id, title, author:{id, fullName}}` (плоский объект, без обёртки `items`). Это даёт автора карточки.
+3. **Удалённая карточка** → тот же эндпоинт отдаёт `404 not_found` → автор `null` → событие дропается (корректно, удалённые не считаем).
+4. `OAuth /authorize` подтверждён рабочим (200 + токены). «Ключ авторизации» в UI = одноразовый `code` (сгорает после первого обмена). `client_secret`/`code` при «Обновить» в UI ротируются вместе.
+5. **`/api/v1/wiki/ql/articles`** (множественное) **НЕ фильтрует** по `__filter.id` (отдаёт случайные строки). Использовать только **singular** `/article`.
+6. End-to-end проверено: `tbd.body.create` (id реальной карточки) → дочитка автора → маппинг на сотрудника → строка в `teamly_events`. ✅
+
+**Вывод для кода:** webhook-фильтр принимает `article`, `comment` **и `tbd.body`**; для `article` и `tbd.body` автор дочитывается одним и тем же `getArticleAuthor(entityId)`. Реализовано в коммите `082004f`.
 
 ## Зачем переписываем
 
@@ -13,16 +26,15 @@
 
 | Метрика для Excel | Источник | Атрибуция |
 |---|---|---|
-| Создал статей/карточек | webhook `article.create` + дочитка автора через `/api/v1/wiki/ql/article` | автор статьи |
+| Создал статей/карточек | webhook `article.create` **и `tbd.body.create`** + дочитка автора через `/api/v1/wiki/ql/article` | автор статьи/карточки |
 | Прокомментировал | webhook `comment.create` | `createdBy` из payload |
 | ~~Посмотрел~~ | — | **не реализуемо в External API**, выбрасываем из отчёта |
 
 **Не делаем:**
 - ❌ Snapshot-таблицы (`teamly_daily_stats` из старого дизайна — удалить из памяти).
 - ❌ Analytics-модуль Teamly (его эндпоинты в External API не экспонированы, на пробе все 404).
-- ❌ `article.publish` отдельно — игнорируем, считаем только `create`.
+- ❌ `article.publish` / `tbd.body.publish` отдельно — игнорируем, считаем только `create`.
 - ❌ Смены статусов карточек (`property.update_value`).
-- ❌ tbd.body endpoint (его публично нет; не нужен, т.к. карточки = `article.create`).
 - ❌ Cron в Teamly-части. Refresh токенов — ленивый.
 
 ## Архитектура
