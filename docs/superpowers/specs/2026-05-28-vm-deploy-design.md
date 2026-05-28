@@ -41,10 +41,11 @@ Teamly ──(webhook, входящие :443)──► [ Caddy :443/:80 (systemd
 
 - Код: `git clone` в `/opt/sb-bot`.
 - Node 20+ через NodeSource apt-репозиторий.
-- Зависимости: `npm ci` **с** devDependencies — `tsx`/`typescript` нужны в рантайме (build-шага нет; запуск `tsx`).
+- Зависимости: `npm ci --include=dev` — **обязательно с** devDependencies (`tsx`/`typescript` нужны в рантайме, build-шага нет). Убедиться, что `NODE_ENV` не равен `production`, иначе npm пропустит devDeps.
 - Секреты (не в git, уже в `.gitignore`), заливаются вручную (scp):
   - `/opt/sb-bot/.env` — все ENV (см. [.env.example](../../../.env.example)).
   - `/opt/sb-bot/secrets/ydb-sa-key.json` — SA-ключ YDB.
+  - **Права:** `.env` и `secrets/` должны принадлежать пользователю `sbbot` (`chown -R sbbot /opt/sb-bot`, `chmod 600 .env`). Иначе `dotenv` молча ничего не прочитает и `v.parse` в [config.ts](../../../src/config.ts) упадёт на старте.
 
 ## 6. systemd-юнит `sb-bot`
 
@@ -57,10 +58,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/sb-bot
-EnvironmentFile=/opt/sb-bot/.env
-ExecStart=/usr/bin/npm start
+ExecStart=/opt/sb-bot/node_modules/.bin/tsx src/main.ts
 Restart=always
 RestartSec=5
+KillMode=mixed
+TimeoutStopSec=20
 User=sbbot
 StandardOutput=journal
 StandardError=journal
@@ -69,9 +71,10 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-- Логи pino(JSON) → journald (`journalctl -u sb-bot`). `pino-pretty` только в dev; в проде — сырой JSON.
-- `LOG_LEVEL=info` в проде.
-- `EnvironmentFile` подхватывает `.env`; при этом `dotenv` в коде тоже сработает — конфликта нет (одни и те же значения).
+- **Запуск напрямую через локальный `tsx` бинарь, НЕ через `npm start`.** Причина: `npm start` порождает дочерний `tsx`-процесс и ненадёжно пробрасывает ему `SIGTERM` при `systemctl stop/restart` — graceful shutdown ([main.ts](../../../src/main.ts): SIGINT/SIGTERM → закрыть сервер, `bot.stop()`, `closeDriver()`) мог бы не отработать. Прямой запуск + `KillMode=mixed` гарантируют доставку сигнала node-процессу.
+- **ENV грузится через `dotenv`, НЕ через `EnvironmentFile`.** Код уже делает `import 'dotenv/config'` ([config.ts](../../../src/config.ts)), который читает `/opt/sb-bot/.env` относительно `WorkingDirectory`. systemd-парсер `EnvironmentFile` иначе обрабатывает кавычки/`#`/JSON, и значения вроде `INITIAL_SB_USERS=[{"telegram_id":...}]` могут исказиться → `JSON.parse` в конфиге упадёт. Поэтому `EnvironmentFile` не используем.
+- **`NODE_ENV` НЕ выставляем в `production`** (иначе `npm ci` пропустит devDeps — см. §8) — юнит его не задаёт.
+- Логи pino(JSON) → journald (`journalctl -u sb-bot`). `pino-pretty` только в dev; в проде — сырой JSON. `LOG_LEVEL=info`.
 
 ## 7. Caddy (TLS-reverse-proxy)
 
@@ -95,7 +98,7 @@ WantedBy=multi-user.target
   - Не делает: заливку секретов и `git clone` (это руками/отдельно, т.к. требуют доступов).
 - **`scripts/deploy.sh`** — обновление уже подготовленной ВМ:
   - `cd /opt/sb-bot && git pull`
-  - `npm ci`
+  - `npm ci --include=dev` — **обязательно с devDependencies**: `tsx`/`typescript` нужны в рантайме. Скрипт явно делает `unset NODE_ENV` (или `NODE_ENV=development npm ci`), чтобы прод-окружение не заставило npm пропустить devDeps.
   - `sudo systemctl restart sb-bot`
   - проверка `curl -fsS localhost:8080/healthz` → `ok` (иначе ненулевой код возврата).
 
@@ -107,8 +110,9 @@ WantedBy=multi-user.target
 2. `provision.sh`, затем `git clone`, залить `.env` и `secrets/`.
 3. В `.env`: `TEAMLY_REDIRECT_URI` и одноразовый `TEAMLY_AUTH_CODE` из UI Teamly (code сгорает при первом обмене; `redirect_uri` должен совпасть). После первого успешного старта токены сохранятся в YDB — `TEAMLY_AUTH_CODE` убрать из `.env`.
 4. `systemctl start sb-bot`, проверить `/healthz` и логи.
-5. В UI Teamly зарегистрировать webhook: `https://<ip-dashes>.nip.io/teamly/webhook/<TEAMLY_WEBHOOK_SECRET>`.
-6. Сделать бота **администратором** каждого триггер-чата в Telegram.
+5. **Сначала** убедиться по логам, что Teamly-источник поднялся: webhook-роут регистрируется только если задан `TEAMLY_WEBHOOK_SECRET` **и** успешно создан `teamlySource` ([main.ts](../../../src/main.ts), [server/index.ts](../../../src/server/index.ts)). Если OAuth-bootstrap не прошёл (code сгорел/ошибка), `teamlySource = null`, роут НЕ регистрируется, и `POST /teamly/webhook/<secret>` отдаст 404 — при этом `/healthz` всё равно `ok`. Проверить в логах строку `teamly webhook route registered` перед следующим шагом.
+6. В UI Teamly зарегистрировать webhook: `https://<ip-dashes>.nip.io/teamly/webhook/<TEAMLY_WEBHOOK_SECRET>`.
+7. Сделать бота **администратором** каждого триггер-чата в Telegram.
 
 ## 10. Операционные нюансы аптайма (важно для «данные пишутся постоянно»)
 
@@ -123,7 +127,7 @@ WantedBy=multi-user.target
 ## 11. Проверка после деплоя
 
 - `systemctl status sb-bot caddy` — оба active.
-- `journalctl -u sb-bot -n 50` — старт без ошибок, «bot started», «teamly tokens loaded»/«bootstrapped».
+- `journalctl -u sb-bot -n 50` — старт без ошибок, «bot started», «teamly tokens loaded»/«bootstrapped», и **`teamly webhook route registered`** (если этой строки нет — Teamly-источник не поднялся, вебхук не примет события; см. §9 шаг 5).
 - `curl https://<ip-dashes>.nip.io/healthz` → `ok` (проверяет и TLS, и проксирование).
 - Тестовое сообщение/реакция в триггер-чате → событие в логах (`LOG_LEVEL=debug` временно).
 - `/report month` в ЛС бота возвращает .xlsx.
