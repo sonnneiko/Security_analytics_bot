@@ -1,4 +1,5 @@
-import { Driver, TypedValues } from 'ydb-sdk'
+import type { Driver } from 'ydb-sdk'
+import { TypedValues } from 'ydb-sdk'
 
 export type TelegramEventType = 'trigger_reply' | 'trigger_reaction'
 

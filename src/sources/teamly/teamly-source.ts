@@ -1,4 +1,4 @@
-import { Driver } from 'ydb-sdk'
+import type { Driver } from 'ydb-sdk'
 import { logger } from '../../logger.js'
 import { insertEvent } from '../../database/queries/teamly-events.js'
 import { buildEvent, type WebhookInput } from './event-builder.js'

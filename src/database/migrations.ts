@@ -1,4 +1,4 @@
-import { Driver } from 'ydb-sdk'
+import type { Driver } from 'ydb-sdk'
 import { logger } from '../logger.js'
 
 const MIGRATIONS: { name: string; ddl: string }[] = [

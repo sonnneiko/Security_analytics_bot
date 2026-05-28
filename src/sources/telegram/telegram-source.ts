@@ -1,4 +1,4 @@
-import { Driver } from 'ydb-sdk'
+import type { Driver } from 'ydb-sdk'
 import { logger } from '../../logger.js'
 import type { DataSource } from '../types.js'
 import { insertEvent } from '../../database/queries/telegram-events.js'

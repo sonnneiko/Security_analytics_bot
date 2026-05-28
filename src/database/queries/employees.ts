@@ -1,4 +1,5 @@
-import { Driver, TypedValues, Types } from 'ydb-sdk'
+import type { Driver } from 'ydb-sdk'
+import { TypedValues, Types } from 'ydb-sdk'
 
 export interface SbEmployeeRow {
   telegram_id: number

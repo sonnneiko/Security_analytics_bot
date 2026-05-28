@@ -1,4 +1,5 @@
-import { Driver, TypedValues, Types } from 'ydb-sdk'
+import type { Driver } from 'ydb-sdk'
+import { TypedValues, Types } from 'ydb-sdk'
 
 export type TeamlyEventType = 'article_create' | 'comment_create'
 

@@ -1,6 +1,12 @@
-import { Driver, IamAuthService, getSACredentialsFromJson } from 'ydb-sdk'
+import { createRequire } from 'node:module'
+import type { Driver } from 'ydb-sdk'
+import { IamAuthService, getSACredentialsFromJson } from 'ydb-sdk'
 import { config } from '../config.js'
 import { logger } from '../logger.js'
+
+// ydb-sdk's ESM build omits the `Driver` named export (only its CJS build has it),
+// so load the class from the CJS entry — works on Node 20+ regardless of resolver.
+const { Driver: DriverClass } = createRequire(import.meta.url)('ydb-sdk') as typeof import('ydb-sdk')
 
 let driverInstance: Driver | null = null
 
@@ -10,7 +16,7 @@ export async function getDriver(): Promise<Driver> {
   const saCreds = getSACredentialsFromJson(config.ydbSaKeyFile)
   const authService = new IamAuthService(saCreds)
 
-  const driver = new Driver({
+  const driver = new DriverClass({
     endpoint: config.ydbEndpoint,
     database: config.ydbDatabase,
     authService,
