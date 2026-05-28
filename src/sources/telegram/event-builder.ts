@@ -1,3 +1,6 @@
+import type { TelegramEventRow } from '../../database/queries/telegram-events.js'
+import type { TriggerMessageRow } from '../../database/queries/trigger-messages.js'
+
 export type EventInput =
   | {
       kind: 'message'
@@ -60,4 +63,43 @@ export function buildIntents(input: EventInput, deps: BuildDeps): EventIntent[] 
     { kind: 'trigger_message', chatId: input.chatId, messageId: input.replyToMessageId!, authorId: input.replyToUserId!, date: input.date },
     { kind: 'trigger_reply', chatId: input.chatId, messageId: input.messageId, fromId: input.fromId, replyToMessageId: input.replyToMessageId!, replyToUserId: input.replyToUserId!, date: input.date },
   ]
+}
+
+export interface ResolveDeps {
+  findTriggerMessage: (chatId: number, messageId: number) => Promise<{ author_id: number } | null>
+}
+
+export async function resolveIntents(
+  intents: EventIntent[],
+  deps: ResolveDeps,
+): Promise<{ triggerMessages: TriggerMessageRow[]; events: TelegramEventRow[] }> {
+  const triggerMessages: TriggerMessageRow[] = []
+  const events: TelegramEventRow[] = []
+
+  for (const intent of intents) {
+    if (intent.kind === 'trigger_message') {
+      triggerMessages.push({ chat_id: intent.chatId, message_id: intent.messageId, author_id: intent.authorId, occurred_at: intent.date })
+    } else if (intent.kind === 'trigger_reply') {
+      events.push({
+        event_id: `tg:${intent.chatId}:${intent.messageId}:trigger_reply`,
+        employee_id: intent.fromId,
+        chat_id: intent.chatId,
+        event_type: 'trigger_reply',
+        occurred_at: intent.date,
+        payload: { reply_to_message_id: intent.replyToMessageId, reply_to_user_id: intent.replyToUserId },
+      })
+    } else {
+      const trig = await deps.findTriggerMessage(intent.chatId, intent.messageId)
+      if (!trig) continue
+      events.push({
+        event_id: `tg:${intent.chatId}:${intent.messageId}:trigger_reaction:${intent.fromId}:${intent.emoji}`,
+        employee_id: intent.fromId,
+        chat_id: intent.chatId,
+        event_type: 'trigger_reaction',
+        occurred_at: intent.date,
+        payload: { trigger_message_id: intent.messageId, author_id: trig.author_id },
+      })
+    }
+  }
+  return { triggerMessages, events }
 }
