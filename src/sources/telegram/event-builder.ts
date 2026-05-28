@@ -1,5 +1,3 @@
-import type { TelegramEventRow } from '../../database/queries/telegram-events.js'
-
 export type EventInput =
   | {
       kind: 'message'
@@ -20,55 +18,46 @@ export type EventInput =
       emoji: string
     }
 
-export interface EventBuilderDeps {
+export type EventIntent =
+  | { kind: 'trigger_message'; chatId: number; messageId: number; authorId: number; date: Date }
+  | {
+      kind: 'trigger_reply'
+      chatId: number
+      messageId: number
+      fromId: number
+      replyToMessageId: number
+      replyToUserId: number
+      date: Date
+    }
+  | { kind: 'reaction_candidate'; chatId: number; messageId: number; fromId: number; emoji: string; date: Date }
+
+export interface BuildDeps {
   isSbEmployee: (telegramId: number) => boolean
 }
 
-export function buildEvents(input: EventInput, deps: EventBuilderDeps): TelegramEventRow[] {
-  if (!deps.isSbEmployee(input.fromId)) return []
-
+export function buildIntents(input: EventInput, deps: BuildDeps): EventIntent[] {
   if (input.kind === 'reaction') {
+    if (!deps.isSbEmployee(input.fromId)) return []
     return [
-      {
-        event_id: `tg:${input.chatId}:${input.messageId}:reaction:${input.fromId}:${input.emoji}`,
-        employee_id: input.fromId,
-        chat_id: input.chatId,
-        event_type: 'reaction',
-        occurred_at: input.date,
-        payload: { emoji: input.emoji, target_message_id: input.messageId },
-      },
+      { kind: 'reaction_candidate', chatId: input.chatId, messageId: input.messageId, fromId: input.fromId, emoji: input.emoji, date: input.date },
     ]
   }
 
-  const events: TelegramEventRow[] = [
-    {
-      event_id: `tg:${input.chatId}:${input.messageId}:message`,
-      employee_id: input.fromId,
-      chat_id: input.chatId,
-      event_type: 'message',
-      occurred_at: input.date,
-      payload: { text: input.text ?? '' },
-    },
-  ]
+  // kind === 'message'
+  if (!deps.isSbEmployee(input.fromId)) {
+    // внешнее сообщение — потенциальный триггер
+    return [{ kind: 'trigger_message', chatId: input.chatId, messageId: input.messageId, authorId: input.fromId, date: input.date }]
+  }
 
+  // сообщение сотрудника: считаем только reply на внешнее
   const isTriggerReply =
     input.replyToMessageId !== undefined &&
     input.replyToUserId !== undefined &&
     !deps.isSbEmployee(input.replyToUserId)
+  if (!isTriggerReply) return []
 
-  if (isTriggerReply) {
-    events.push({
-      event_id: `tg:${input.chatId}:${input.messageId}:trigger_reply`,
-      employee_id: input.fromId,
-      chat_id: input.chatId,
-      event_type: 'trigger_reply',
-      occurred_at: input.date,
-      payload: {
-        reply_to_message_id: input.replyToMessageId,
-        reply_to_user_id: input.replyToUserId,
-      },
-    })
-  }
-
-  return events
+  return [
+    { kind: 'trigger_message', chatId: input.chatId, messageId: input.replyToMessageId!, authorId: input.replyToUserId!, date: input.date },
+    { kind: 'trigger_reply', chatId: input.chatId, messageId: input.messageId, fromId: input.fromId, replyToMessageId: input.replyToMessageId!, replyToUserId: input.replyToUserId!, date: input.date },
+  ]
 }
