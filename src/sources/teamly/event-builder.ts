@@ -1,7 +1,8 @@
 import type { TeamlyEventRow } from '../../database/queries/teamly-events.js'
 
 export interface WebhookInput {
-  entityType: 'article' | 'comment'
+  // 'tbd.body' = строка умной таблицы (карточка). Читается тем же article-эндпоинтом.
+  entityType: 'article' | 'comment' | 'tbd.body'
   action: 'create'
   entityId: string
   content: Record<string, unknown>
@@ -25,6 +26,7 @@ export async function buildEvent(
     const createdBy = input.content?.createdBy
     teamlyUserId = typeof createdBy === 'string' ? createdBy : null
   } else {
+    // article и tbd.body (карточка) — автор дочитывается одним и тем же эндпоинтом
     teamlyUserId = await deps.getArticleAuthor(input.entityId)
     const container = input.content?.containerId
     containerId = typeof container === 'string' ? container : null

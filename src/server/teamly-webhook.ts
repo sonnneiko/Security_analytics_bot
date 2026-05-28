@@ -35,15 +35,17 @@ export function teamlyWebhookRoute(secret: string, source: TeamlySource): Hono {
   return app
 }
 
+const ACCEPTED_TYPES = new Set(['article', 'comment', 'tbd.body'])
+
 function parsePayload(raw: RawTeamlyPayload): WebhookInput | null {
   if (raw.action !== 'create') return null
-  if (raw.entityType !== 'article' && raw.entityType !== 'comment') return null
+  if (!raw.entityType || !ACCEPTED_TYPES.has(raw.entityType)) return null
   if (typeof raw.entityId !== 'string') {
     logger.warn({ raw }, 'teamly webhook: missing entityId')
     return null
   }
   return {
-    entityType: raw.entityType,
+    entityType: raw.entityType as WebhookInput['entityType'],
     action: 'create',
     entityId: raw.entityId,
     content: raw.content ?? {},

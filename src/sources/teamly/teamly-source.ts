@@ -34,7 +34,7 @@ export class TeamlySource {
     if (!ev) {
       logger.debug(
         { entityId: input.entityId, entityType: input.entityType },
-        'teamly event dropped (not SB or no author)',
+        'teamly event dropped (author not resolved or not an SB employee)',
       )
       return
     }

@@ -96,3 +96,41 @@ describe('buildEvent — article', () => {
     expect(ev).toBeNull()
   })
 })
+
+describe('buildEvent — tbd.body (карточка умной таблицы)', () => {
+  it('builds article_create from tbd.body via getArticleAuthor dochitka', async () => {
+    const input: WebhookInput = {
+      entityType: 'tbd.body',
+      action: 'create',
+      entityId: 'card-1',
+      content: { containerId: 'tbd-1' },
+      occurredAt: new Date('2026-05-28T10:00:00Z'),
+      raw: { entityType: 'tbd.body' },
+    }
+    const ev = await buildEvent(input, {
+      ...deps,
+      getArticleAuthor: async (id) => (id === 'card-1' ? ANI_TEAMLY : null),
+    })
+    expect(ev).toMatchObject({
+      event_id: 'article_create:card-1',
+      employee_id: ANI_TG,
+      teamly_user_id: ANI_TEAMLY,
+      event_type: 'article_create',
+      entity_id: 'card-1',
+      container_id: 'tbd-1',
+    })
+  })
+
+  it('drops tbd.body when card was deleted (author 404 → null)', async () => {
+    const input: WebhookInput = {
+      entityType: 'tbd.body',
+      action: 'create',
+      entityId: 'gone',
+      content: { containerId: 'tbd-1' },
+      occurredAt: new Date(),
+      raw: {},
+    }
+    const ev = await buildEvent(input, { ...deps, getArticleAuthor: async () => null })
+    expect(ev).toBeNull()
+  })
+})

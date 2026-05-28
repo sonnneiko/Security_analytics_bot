@@ -58,6 +58,24 @@ describe('teamlyWebhookRoute', () => {
     expect(source.handle).not.toHaveBeenCalled()
   })
 
+  it('200 + enqueues tbd.body.create (карточка)', async () => {
+    const source = makeSource()
+    const app = teamlyWebhookRoute(SECRET, source)
+    const res = await app.request(`/teamly/webhook/${SECRET}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        entityId: 'card-1',
+        entityType: 'tbd.body',
+        action: 'create',
+        content: { containerId: 'tbd-1' },
+      }),
+    })
+    expect(res.status).toBe(200)
+    await vi.waitFor(() => expect((source.handle as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1))
+    expect((source.handle as ReturnType<typeof vi.fn>).mock.calls[0][0].entityType).toBe('tbd.body')
+  })
+
   it('200 + enqueues comment.create', async () => {
     const source = makeSource()
     const app = teamlyWebhookRoute(SECRET, source)
