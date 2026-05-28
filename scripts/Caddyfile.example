@@ -1,4 +1,4 @@
-# Подставить реальный nip.io-хост через provision.sh (заменяет __NIP_HOST__).
+# provision.sh подставляет реальный nip.io-хост вместо плейсхолдера ниже.
 # Пример хоста для IP 51.250.1.2 → 51-250-1-2.nip.io
 __NIP_HOST__ {
     reverse_proxy localhost:8080
