@@ -1,0 +1,19 @@
+[Unit]
+Description=Security Analytics Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sb-bot
+ExecStart=/opt/sb-bot/node_modules/.bin/tsx src/main.ts
+Restart=always
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=20
+User=sbbot
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
