@@ -20,7 +20,10 @@
       "Bash(curl -s -o /tmp/x.out -w \"HTTP %{http_code}\\\\n\" \"http://[::1]:8080/healthz\")",
       "Bash(curl -s -o /tmp/h.out -w \"HTTP %{http_code}\\\\n\" https://farming-starring-incident-highways.trycloudflare.com/healthz)",
       "Bash(curl -s -o /tmp/w.out -w 'HTTP %{http_code}\\\\n' -X POST https://farming-starring-incident-highways.trycloudflare.com/teamly/webhook/623ef6b2f7c5049e4947a5d0796c21a2a8f86ffcaed00a738407552330363e39 -H 'Content-Type: application/json' -d '{\"entityType\":\"article\",\"action\":\"create\",\"entityId\":\"test-ping\"}')",
-      "Bash(iconv -f utf-8 -t utf-8 -c)"
+      "Bash(iconv -f utf-8 -t utf-8 -c)",
+      "Bash(./scripts/start-server.sh --project-dir /Users/s.alhazova/Documents/GitHub/Security_analytics_bot)",
+      "Bash(npx vitest *)",
+      "Bash(node -e ' *)"
     ]
   }
 }
