@@ -74,6 +74,18 @@ const MIGRATIONS: { name: string; ddl: string }[] = [
       )
     `,
   },
+  {
+    name: '006_trigger_messages',
+    ddl: `
+      CREATE TABLE IF NOT EXISTS trigger_messages (
+        chat_id      Int64,
+        message_id   Int64,
+        author_id    Uint64,
+        occurred_at  Timestamp,
+        PRIMARY KEY (chat_id, message_id)
+      )
+    `,
+  },
 ]
 
 export async function runMigrations(driver: Driver): Promise<void> {
