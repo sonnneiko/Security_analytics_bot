@@ -1,6 +1,6 @@
 import { Driver, TypedValues } from 'ydb-sdk'
 
-export type TelegramEventType = 'message' | 'reaction' | 'trigger_reply'
+export type TelegramEventType = 'trigger_reply' | 'trigger_reaction'
 
 export interface TelegramEventRow {
   event_id: string
@@ -38,6 +38,53 @@ export async function insertEvent(driver: Driver, row: TelegramEventRow): Promis
         },
       })
       await res.opFinished
+    },
+  })
+}
+
+async function drain(execResult: {
+  resultSets: AsyncGenerator<{ rows: AsyncGenerator<Record<string, unknown>, void> }>
+  opFinished: Promise<void>
+}): Promise<Record<string, unknown>[]> {
+  const all: Record<string, unknown>[] = []
+  for await (const rs of execResult.resultSets) {
+    for await (const row of rs.rows) all.push(row)
+  }
+  await execResult.opFinished
+  return all
+}
+
+export async function selectEventsForPeriod(
+  driver: Driver,
+  fromUtc: Date,
+  toUtc: Date,
+): Promise<TelegramEventRow[]> {
+  return driver.queryClient.do({
+    timeout: 30_000,
+    fn: async (session) => {
+      const res = await session.execute({
+        text: `
+          DECLARE $from AS Timestamp;
+          DECLARE $to AS Timestamp;
+          SELECT event_id, employee_id, chat_id, event_type, occurred_at, payload
+          FROM telegram_events
+          WHERE occurred_at >= $from AND occurred_at < $to
+            AND event_type IN ('trigger_reply', 'trigger_reaction');
+        `,
+        parameters: {
+          $from: TypedValues.timestamp(fromUtc),
+          $to: TypedValues.timestamp(toUtc),
+        },
+      })
+      const rows = await drain(res)
+      return rows.map((r) => ({
+        event_id: r.eventId as string,
+        employee_id: Number(r.employeeId),
+        chat_id: Number(r.chatId),
+        event_type: r.eventType as TelegramEventType,
+        occurred_at: r.occurredAt as Date,
+        payload: JSON.parse(r.payload as string) as Record<string, unknown>,
+      }))
     },
   })
 }

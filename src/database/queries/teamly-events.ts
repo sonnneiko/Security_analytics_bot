@@ -50,3 +50,45 @@ export async function insertEvent(driver: Driver, row: TeamlyEventRow): Promise<
     },
   })
 }
+
+async function drain(execResult: {
+  resultSets: AsyncGenerator<{ rows: AsyncGenerator<Record<string, unknown>, void> }>
+  opFinished: Promise<void>
+}): Promise<Record<string, unknown>[]> {
+  const all: Record<string, unknown>[] = []
+  for await (const rs of execResult.resultSets) {
+    for await (const row of rs.rows) all.push(row)
+  }
+  await execResult.opFinished
+  return all
+}
+
+export async function selectEventsForPeriod(
+  driver: Driver,
+  fromUtc: Date,
+  toUtc: Date,
+): Promise<Pick<TeamlyEventRow, 'employee_id' | 'event_type'>[]> {
+  return driver.queryClient.do({
+    timeout: 30_000,
+    fn: async (session) => {
+      const res = await session.execute({
+        text: `
+          DECLARE $from AS Timestamp;
+          DECLARE $to AS Timestamp;
+          SELECT employee_id, event_type
+          FROM teamly_events
+          WHERE occurred_at >= $from AND occurred_at < $to;
+        `,
+        parameters: {
+          $from: TypedValues.timestamp(fromUtc),
+          $to: TypedValues.timestamp(toUtc),
+        },
+      })
+      const rows = await drain(res)
+      return rows.map((r) => ({
+        employee_id: Number(r.employeeId),
+        event_type: r.eventType as TeamlyEventType,
+      }))
+    },
+  })
+}
