@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.teamly.one)",
+      "Bash(gh api *)",
+      "WebFetch(domain:github.com)",
+      "Bash(claude mcp *)",
+      "Bash(npx --version)",
+      "Bash(npm ls *)",
+      "Bash(npx playwright *)",
+      "Bash(node scrape.js)",
+      "Bash(node crawl.js)",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_navigate",
+      "Bash(pkill -f \"tsx watch src/main.ts\")",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(curl -s -o /tmp/r.out -w 'HTTP %{http_code}\\\\n' -X POST https://__TRACKED_VAR__/api/v1/wiki/ql/spaces -H 'Authorization: Bearer def502003818a6208e8c75ab849eb5988bf5407cdadcf57009ed63f9e1bc9d04daf94fd0e9fcd233ba33e03e09ccf0bf691dee5bd7b7a53059c3e504c489a62dc8b77e1d906b1dddf83f66cc8d83fe13ac3c4d7377029bb5ad75f57534730add8c077844ac2a14b82bb64c344cb022d00c9a85f65c6e20837cc9af7eee57377762c366579b24ec5ce5a6823b07e4711327c95b3e3dd4499b8fc65d26ae6cdb8d8605dac217e99218174a1d8dfadb4b7c81d80e10badabc4ed1b1e04c72d04ffdb595552134f7b57c3a6575742fbcfd4591fd9ed8f39fa8970a82addb5f537e9e1c4085809c639acbd2fe28768f2d72ffafebceeeea60626197d1c0a456dada0772fc0c2a9b74d967ca9089271acb33d574f8ff8a055a8ccf6de80befc82758f85e5e1c2d38ef607258a49379e57e72d440afeffbcfd511373c751db66b3d7e9bf416b18272028098e2d3fa49c728e1a0775903df593e8220848b8c76dd1e4364ead3274b538603e3071459ff72e00133e8c435c93d7aea00f8a4a9be9873543e5c44a8dd1c8a8287b10b94df551e91b014ea4eba2f25d2d18f2deae09aaefea3f169d5' -H 'X-Account-Slug: __TRACKED_VAR__' -H 'Content-Type: application/json' -d '{\"query\":{\"__pagination\":{\"page\":1,\"perPage\":1},\"id\":true,\"title\":true}}')",
+      "Bash(curl -s -o /tmp/x.out -w \"HTTP %{http_code}\\\\n\" http://127.0.0.1:8080/healthz)",
+      "Bash(curl -s -o /tmp/x.out -w \"HTTP %{http_code}\\\\n\" http://localhost:8080/healthz)",
+      "Bash(curl -s -o /tmp/x.out -w \"HTTP %{http_code}\\\\n\" \"http://[::1]:8080/healthz\")",
+      "Bash(curl -s -o /tmp/h.out -w \"HTTP %{http_code}\\\\n\" https://farming-starring-incident-highways.trycloudflare.com/healthz)",
+      "Bash(curl -s -o /tmp/w.out -w 'HTTP %{http_code}\\\\n' -X POST https://farming-starring-incident-highways.trycloudflare.com/teamly/webhook/623ef6b2f7c5049e4947a5d0796c21a2a8f86ffcaed00a738407552330363e39 -H 'Content-Type: application/json' -d '{\"entityType\":\"article\",\"action\":\"create\",\"entityId\":\"test-ping\"}')",
+      "Bash(iconv -f utf-8 -t utf-8 -c)"
+    ]
+  }
+}
