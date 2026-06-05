@@ -1,4 +1,5 @@
 import type { Driver } from 'ydb-sdk'
+import { withSession } from './client.js'
 import { logger } from '../logger.js'
 
 const MIGRATIONS: { name: string; ddl: string }[] = [
@@ -90,13 +91,13 @@ const MIGRATIONS: { name: string; ddl: string }[] = [
 
 export async function runMigrations(driver: Driver): Promise<void> {
   for (const { name, ddl } of MIGRATIONS) {
-    await driver.queryClient.do({
-      timeout: 30_000,
-      fn: async (session) => {
-        const { opFinished } = await session.execute({ text: ddl })
-        await opFinished
+    await withSession(
+      driver,
+      async (session) => {
+        await session.executeSchemeQuery(ddl)
       },
-    })
+      30_000,
+    )
     logger.info({ migration: name }, 'migration applied')
   }
 }

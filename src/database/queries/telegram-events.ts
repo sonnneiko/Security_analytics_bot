@@ -1,5 +1,6 @@
 import type { Driver } from 'ydb-sdk'
-import { TypedValues } from 'ydb-sdk'
+import { AUTO_TX, TypedData, TypedValues } from 'ydb-sdk'
+import { withSession } from '../client.js'
 
 export type TelegramEventType = 'trigger_reply' | 'trigger_reaction'
 
@@ -13,46 +14,29 @@ export interface TelegramEventRow {
 }
 
 export async function insertEvent(driver: Driver, row: TelegramEventRow): Promise<void> {
-  await driver.queryClient.do({
-    timeout: 10_000,
-    fn: async (session) => {
-      const res = await session.execute({
-        text: `
-          DECLARE $event_id AS Utf8;
-          DECLARE $employee_id AS Uint64;
-          DECLARE $chat_id AS Int64;
-          DECLARE $event_type AS Utf8;
-          DECLARE $occurred_at AS Timestamp;
-          DECLARE $payload AS Json;
-          UPSERT INTO telegram_events
-            (event_id, employee_id, chat_id, event_type, occurred_at, payload)
-          VALUES
-            ($event_id, $employee_id, $chat_id, $event_type, $occurred_at, $payload);
-        `,
-        parameters: {
-          $event_id: TypedValues.utf8(row.event_id),
-          $employee_id: TypedValues.uint64(row.employee_id),
-          $chat_id: TypedValues.int64(row.chat_id),
-          $event_type: TypedValues.utf8(row.event_type),
-          $occurred_at: TypedValues.timestamp(row.occurred_at),
-          $payload: TypedValues.json(JSON.stringify(row.payload)),
-        },
-      })
-      await res.opFinished
-    },
+  await withSession(driver, async (session) => {
+    await session.executeQuery(
+      `DECLARE $event_id AS Utf8;
+       DECLARE $employee_id AS Uint64;
+       DECLARE $chat_id AS Int64;
+       DECLARE $event_type AS Utf8;
+       DECLARE $occurred_at AS Timestamp;
+       DECLARE $payload AS Json;
+       UPSERT INTO telegram_events
+         (event_id, employee_id, chat_id, event_type, occurred_at, payload)
+       VALUES
+         ($event_id, $employee_id, $chat_id, $event_type, $occurred_at, $payload);`,
+      {
+        $event_id: TypedValues.utf8(row.event_id),
+        $employee_id: TypedValues.uint64(row.employee_id),
+        $chat_id: TypedValues.int64(row.chat_id),
+        $event_type: TypedValues.utf8(row.event_type),
+        $occurred_at: TypedValues.timestamp(row.occurred_at),
+        $payload: TypedValues.json(JSON.stringify(row.payload)),
+      },
+      AUTO_TX,
+    )
   })
-}
-
-async function drain(execResult: {
-  resultSets: AsyncGenerator<{ rows: AsyncGenerator<Record<string, unknown>, void> }>
-  opFinished: Promise<void>
-}): Promise<Record<string, unknown>[]> {
-  const all: Record<string, unknown>[] = []
-  for await (const rs of execResult.resultSets) {
-    for await (const row of rs.rows) all.push(row)
-  }
-  await execResult.opFinished
-  return all
 }
 
 export async function selectEventsForPeriod(
@@ -60,32 +44,39 @@ export async function selectEventsForPeriod(
   fromUtc: Date,
   toUtc: Date,
 ): Promise<TelegramEventRow[]> {
-  return driver.queryClient.do({
-    timeout: 30_000,
-    fn: async (session) => {
-      const res = await session.execute({
-        text: `
-          DECLARE $from AS Timestamp;
-          DECLARE $to AS Timestamp;
-          SELECT event_id, employee_id, chat_id, event_type, occurred_at, payload
-          FROM telegram_events
-          WHERE occurred_at >= $from AND occurred_at < $to
-            AND event_type IN ('trigger_reply', 'trigger_reaction');
-        `,
-        parameters: {
+  return withSession(
+    driver,
+    async (session) => {
+      const result = await session.executeQuery(
+        `DECLARE $from AS Timestamp;
+         DECLARE $to AS Timestamp;
+         SELECT event_id, employee_id, chat_id, event_type, occurred_at, payload
+         FROM telegram_events
+         WHERE occurred_at >= $from AND occurred_at < $to
+           AND event_type IN ('trigger_reply', 'trigger_reaction');`,
+        {
           $from: TypedValues.timestamp(fromUtc),
           $to: TypedValues.timestamp(toUtc),
         },
-      })
-      const rows = await drain(res)
+        AUTO_TX,
+      )
+      const rows = TypedData.createNativeObjects(result.resultSets[0]) as unknown as Array<{
+        event_id: string
+        employee_id: number | bigint
+        chat_id: number | bigint
+        event_type: TelegramEventType
+        occurred_at: Date
+        payload: string
+      }>
       return rows.map((r) => ({
-        event_id: r.eventId as string,
-        employee_id: Number(r.employeeId),
-        chat_id: Number(r.chatId),
-        event_type: r.eventType as TelegramEventType,
-        occurred_at: r.occurredAt as Date,
-        payload: JSON.parse(r.payload as string) as Record<string, unknown>,
+        event_id: r.event_id,
+        employee_id: Number(r.employee_id),
+        chat_id: Number(r.chat_id),
+        event_type: r.event_type,
+        occurred_at: r.occurred_at,
+        payload: JSON.parse(r.payload) as Record<string, unknown>,
       }))
     },
-  })
+    30_000,
+  )
 }
