@@ -1,5 +1,4 @@
 import type { Driver } from 'ydb-sdk'
-import { withSession } from './client.js'
 import { logger } from '../logger.js'
 
 const MIGRATIONS: { name: string; ddl: string }[] = [
@@ -89,15 +88,18 @@ const MIGRATIONS: { name: string; ddl: string }[] = [
   },
 ]
 
+// Migrations stay on the Query API: they run once at startup, long before the
+// long-lived-driver auth degradation kicks in, and Table API's
+// session.executeQuery doesn't accept raw schema DDL.
 export async function runMigrations(driver: Driver): Promise<void> {
   for (const { name, ddl } of MIGRATIONS) {
-    await withSession(
-      driver,
-      async (session) => {
-        await session.executeSchemeQuery(ddl)
+    await driver.queryClient.do({
+      timeout: 30_000,
+      fn: async (session) => {
+        const { opFinished } = await session.execute({ text: ddl })
+        await opFinished
       },
-      30_000,
-    )
+    })
     logger.info({ migration: name }, 'migration applied')
   }
 }
