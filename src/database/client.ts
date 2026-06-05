@@ -8,6 +8,25 @@ import { logger } from '../logger.js'
 // so load the class from the CJS entry — works on Node 20+ regardless of resolver.
 const { Driver: DriverClass } = createRequire(import.meta.url)('ydb-sdk') as typeof import('ydb-sdk')
 
+const DEFAULT_TIMEOUT_MS = 10_000
+
+// Table API (driver.tableClient.withSession + session.executeQuery) is used
+// instead of Query API because the long-lived Query API session deteriorates
+// auth after ~12-16h (см. [[project-ydb-auth-degrades]]).
+export function withSession<T>(
+  driver: Driver,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  fn: (session: any) => Promise<T>,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  return Promise.race([
+    driver.tableClient.withSession(fn) as Promise<T>,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`YDB query timed out after ${timeoutMs}ms`)), timeoutMs),
+    ),
+  ])
+}
+
 let driverInstance: Driver | null = null
 
 export async function getDriver(): Promise<Driver> {
