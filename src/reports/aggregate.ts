@@ -3,16 +3,29 @@ import type { TeamlyEventType } from '../database/queries/teamly-events.js'
 import type { SbEmployeeRow } from '../database/queries/employees.js'
 import type { TriggerChatRow } from '../database/queries/trigger-chats.js'
 
-export interface ChatStat { chat_id: number; title: string; handled: number; unique: number }
+export interface ChatEmployeeStat {
+  telegram_id: number
+  full_name: string
+  handled: number
+  unique: number
+}
+export interface ChatBreakdown {
+  chat_id: number
+  title: string
+  perEmployee: ChatEmployeeStat[]
+  handled: number
+  unique: number
+}
 export interface EmployeeStat {
   telegram_id: number
   full_name: string
   tg: { handled: number; unique: number }
   teamly: { created: number; commented: number }
-  perChat: ChatStat[]
 }
 export interface ReportData {
   employees: EmployeeStat[]
+  chatsActive: ChatBreakdown[]
+  chatsEmpty: { chat_id: number; title: string }[]
   totals: { handled: number; unique: number; created: number; commented: number }
   activeChats: number
   employeeCount: number
@@ -32,7 +45,6 @@ function triggerIdOf(row: TelegramEventRow): number | null {
 }
 
 export function buildReportData(input: Input): ReportData {
-  const chatTitle = new Map(input.chats.map((c) => [c.chat_id, c.title]))
   const teamlyById = new Map<number, { created: number; commented: number }>()
   for (const e of input.teamly) {
     const acc = teamlyById.get(e.employee_id) ?? { created: 0, commented: 0 }
@@ -41,30 +53,99 @@ export function buildReportData(input: Input): ReportData {
     teamlyById.set(e.employee_id, acc)
   }
 
-  const activeChatIds = new Set<number>()
-  const employees: EmployeeStat[] = input.employees.map((emp) => {
-    const rows = input.telegram.filter((r) => r.employee_id === emp.telegram_id && chatTitle.has(r.chat_id))
-    const perChatMap = new Map<number, { handled: number; uniq: Set<number> }>()
-    const empUniq = new Set<string>()
-    for (const r of rows) {
-      activeChatIds.add(r.chat_id)
-      const c = perChatMap.get(r.chat_id) ?? { handled: 0, uniq: new Set<number>() }
-      c.handled++
-      const tid = triggerIdOf(r)
-      if (tid !== null) { c.uniq.add(tid); empUniq.add(`${r.chat_id}:${tid}`) }
-      perChatMap.set(r.chat_id, c)
+  const chatById = new Map(input.chats.map((c) => [c.chat_id, c.title]))
+  const empById = new Map(input.employees.map((e) => [e.telegram_id, e.full_name]))
+
+  type CEStats = { handled: number; uniq: Set<number> }
+  const perChatEmp = new Map<number, Map<number, CEStats>>()
+  const empUniq = new Map<number, Set<string>>()
+
+  for (const r of input.telegram) {
+    if (!chatById.has(r.chat_id) || !empById.has(r.employee_id)) continue
+    let chatMap = perChatEmp.get(r.chat_id)
+    if (!chatMap) {
+      chatMap = new Map()
+      perChatEmp.set(r.chat_id, chatMap)
     }
-    const perChat: ChatStat[] = [...perChatMap.entries()].map(([chat_id, v]) => ({
-      chat_id, title: chatTitle.get(chat_id)!, handled: v.handled, unique: v.uniq.size,
-    }))
-    const tg = { handled: perChat.reduce((s, c) => s + c.handled, 0), unique: empUniq.size }
+    let s = chatMap.get(r.employee_id)
+    if (!s) {
+      s = { handled: 0, uniq: new Set() }
+      chatMap.set(r.employee_id, s)
+    }
+    s.handled++
+    const tid = triggerIdOf(r)
+    if (tid !== null) {
+      s.uniq.add(tid)
+      let eu = empUniq.get(r.employee_id)
+      if (!eu) {
+        eu = new Set()
+        empUniq.set(r.employee_id, eu)
+      }
+      eu.add(`${r.chat_id}:${tid}`)
+    }
+  }
+
+  const employees: EmployeeStat[] = input.employees.map((emp) => {
+    let handled = 0
+    for (const chatMap of perChatEmp.values()) {
+      const s = chatMap.get(emp.telegram_id)
+      if (s) handled += s.handled
+    }
+    const unique = empUniq.get(emp.telegram_id)?.size ?? 0
     const teamly = teamlyById.get(emp.telegram_id) ?? { created: 0, commented: 0 }
-    return { telegram_id: emp.telegram_id, full_name: emp.full_name, tg, teamly, perChat }
+    return {
+      telegram_id: emp.telegram_id,
+      full_name: emp.full_name,
+      tg: { handled, unique },
+      teamly,
+    }
   })
 
+  const breakdowns: ChatBreakdown[] = input.chats.map((c) => {
+    const chatMap = perChatEmp.get(c.chat_id)
+    const perEmployee: ChatEmployeeStat[] = input.employees.map((emp) => {
+      const s = chatMap?.get(emp.telegram_id)
+      return {
+        telegram_id: emp.telegram_id,
+        full_name: emp.full_name,
+        handled: s?.handled ?? 0,
+        unique: s?.uniq.size ?? 0,
+      }
+    })
+    const handled = perEmployee.reduce((sum, e) => sum + e.handled, 0)
+    const unique = perEmployee.reduce((sum, e) => sum + e.unique, 0)
+    return { chat_id: c.chat_id, title: c.title, perEmployee, handled, unique }
+  })
+
+  const chatsActive = breakdowns
+    .filter((b) => b.handled > 0)
+    .sort(
+      (a, b) =>
+        b.handled - a.handled ||
+        b.unique - a.unique ||
+        a.title.localeCompare(b.title, 'ru'),
+    )
+  const chatsEmpty = breakdowns
+    .filter((b) => b.handled === 0)
+    .map((b) => ({ chat_id: b.chat_id, title: b.title }))
+    .sort((a, b) => a.title.localeCompare(b.title, 'ru'))
+
   const totals = employees.reduce(
-    (s, e) => ({ handled: s.handled + e.tg.handled, unique: s.unique + e.tg.unique, created: s.created + e.teamly.created, commented: s.commented + e.teamly.commented }),
+    (s, e) => ({
+      handled: s.handled + e.tg.handled,
+      unique: s.unique + e.tg.unique,
+      created: s.created + e.teamly.created,
+      commented: s.commented + e.teamly.commented,
+    }),
     { handled: 0, unique: 0, created: 0, commented: 0 },
   )
-  return { employees, totals, activeChats: activeChatIds.size, employeeCount: input.employees.length }
+
+  return {
+    employees,
+    chatsActive,
+    chatsEmpty,
+    totals,
+    activeChats: chatsActive.length,
+    employeeCount: input.employees.length,
+  }
 }

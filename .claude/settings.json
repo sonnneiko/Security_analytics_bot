@@ -23,7 +23,16 @@
       "Bash(iconv -f utf-8 -t utf-8 -c)",
       "Bash(./scripts/start-server.sh --project-dir /Users/s.alhazova/Documents/GitHub/Security_analytics_bot)",
       "Bash(npx vitest *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(bash -n /tmp/prov_test.sh)",
+      "Bash(bash /tmp/prov_test.sh)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(bash -c 'set -euo pipefail; unset NODE_ENV; echo \"unset of nonexistent var OK, exit=$?\"')",
+      "Bash(yc compute *)",
+      "Bash(yc vpc *)",
+      "Bash(rsync -az --delete --exclude node_modules --exclude .git --exclude .superpowers --exclude dist --exclude .playwright-mcp -e 'ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/id_ed25519' ./ yc-user@158.160.3.16:/tmp/sb-bot-src/)",
+      "Bash(echo \"rsync exit: $?\")",
+      "Bash(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/id_ed25519 yc-user@158.160.3.16 'ls /tmp/sb-bot-src | head; echo \"--- secrets:\"; ls /tmp/sb-bot-src/secrets; echo \"--- .env present:\"; test -f /tmp/sb-bot-src/.env && echo yes')"
     ]
   }
 }
