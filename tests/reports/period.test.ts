@@ -1,5 +1,26 @@
 import { describe, it, expect } from 'vitest'
-import { resolvePeriod } from '../../src/reports/period.js'
+import { resolvePeriod, isoWeekMondayMsk, mskToUtc } from '../../src/reports/period.js'
+
+describe('isoWeekMondayMsk', () => {
+  it('инстант внутри недели → понедельник ISO-недели (МСК) YYYY-MM-DD', () => {
+    // 2026-05-06T10:00 МСК (среда) → понедельник 2026-05-04
+    const d = mskToUtc(2026, 4, 6, 10)
+    expect(isoWeekMondayMsk(d)).toBe('2026-05-04')
+  })
+
+  it('учитывает сдвиг МСК на границе суток (UTC-вс → МСК-пн)', () => {
+    // 2026-05-03T21:30Z = 2026-05-04T00:30 МСК (понедельник) → 2026-05-04,
+    // а не неделя предыдущего понедельника (как было бы по UTC-воскресенью)
+    const d = new Date('2026-05-03T21:30:00.000Z')
+    expect(isoWeekMondayMsk(d)).toBe('2026-05-04')
+  })
+
+  it('неделя на стыке месяцев → понедельник в предыдущем месяце', () => {
+    // пятница 2026-05-01 12:00 МСК принадлежит неделе понедельника 2026-04-27
+    const d = mskToUtc(2026, 4, 1, 12)
+    expect(isoWeekMondayMsk(d)).toBe('2026-04-27')
+  })
+})
 
 describe('resolvePeriod month', () => {
   it('явный месяц → границы UTC, лейблы, имя файла', () => {

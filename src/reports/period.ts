@@ -10,7 +10,7 @@ export interface ResolvedPeriod {
 }
 
 // МСК-настенное время (Y,M0,D,h) → момент UTC
-function mskToUtc(y: number, m0: number, d: number, h = 0): Date {
+export function mskToUtc(y: number, m0: number, d: number, h = 0): Date {
   return new Date(Date.UTC(y, m0, d, h) - MSK_OFFSET_MS)
 }
 
@@ -41,6 +41,14 @@ function isoWeekOf(d: Date): { year: number; week: number } {
   const week1Monday = new Date(jan4.getTime() - jan4Dow * 86400000)
   const week = Math.round((date.getTime() - week1Monday.getTime()) / (7 * 86400000)) + 1
   return { year, week }
+}
+
+// UTC-инстант occurred_at → понедельник его ISO-недели (МСК) как YYYY-MM-DD
+export function isoWeekMondayMsk(occurredAt: Date): string {
+  const msk = new Date(occurredAt.getTime() + MSK_OFFSET_MS) // поля .getUTC* = МСК-настенные
+  const { year, week } = isoWeekOf(msk)
+  const monday = isoWeekMonday(year, week)
+  return `${monday.getUTCFullYear()}-${pad2(monday.getUTCMonth() + 1)}-${pad2(monday.getUTCDate())}`
 }
 
 export function resolvePeriod(kind: 'week' | 'month', arg?: string): ResolvedPeriod {
