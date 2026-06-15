@@ -2,6 +2,7 @@ import type { TelegramEventRow } from '../database/queries/telegram-events.js'
 import type { TeamlyEventType } from '../database/queries/teamly-events.js'
 import type { SbEmployeeRow } from '../database/queries/employees.js'
 import type { TriggerChatRow } from '../database/queries/trigger-chats.js'
+import { isoWeekMondayMsk } from './period.js'
 
 export interface ChatEmployeeStat {
   telegram_id: number
@@ -42,6 +43,32 @@ function triggerIdOf(row: TelegramEventRow): number | null {
   const p = row.payload as Record<string, unknown>
   const id = row.event_type === 'trigger_reply' ? p.reply_to_message_id : p.trigger_message_id
   return typeof id === 'number' ? id : null
+}
+
+// КОМАНДНЫЕ уникальные триггеры по ISO-неделям (МСК): один триггер, обработанный
+// несколькими сотрудниками СБ, считается ОДИН раз (в отличие от totals.unique,
+// который суммирует уникальные по каждому сотруднику).
+export function uniqueTriggersByWeek(
+  rows: TelegramEventRow[],
+  employeeIds: Set<number>,
+  chatIds: Set<number>,
+): Record<string, number> {
+  const byWeek = new Map<string, Set<string>>()
+  for (const r of rows) {
+    if (!chatIds.has(r.chat_id) || !employeeIds.has(r.employee_id)) continue
+    const tid = triggerIdOf(r)
+    if (tid === null) continue
+    const week = isoWeekMondayMsk(r.occurred_at)
+    let set = byWeek.get(week)
+    if (!set) {
+      set = new Set()
+      byWeek.set(week, set)
+    }
+    set.add(`${r.chat_id}:${tid}`)
+  }
+  const out: Record<string, number> = {}
+  for (const [week, set] of byWeek) out[week] = set.size
+  return out
 }
 
 export function buildReportData(input: Input): ReportData {
