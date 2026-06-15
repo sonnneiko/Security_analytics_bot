@@ -1,13 +1,17 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
+import type { Driver } from 'ydb-sdk'
 import { logger } from '../logger.js'
 import { teamlyWebhookRoute } from './teamly-webhook.js'
+import { triggerStatsRoute } from './trigger-stats.js'
 import type { TeamlySource } from '../sources/teamly/teamly-source.js'
 
 export interface ServerOptions {
   port: number
   teamlyWebhookSecret: string | null
   teamlySource: TeamlySource | null
+  statsToken: string | null
+  driver: Driver
 }
 
 export interface RunningServer {
@@ -24,6 +28,13 @@ export function startServer(opts: ServerOptions): RunningServer {
     logger.info('teamly webhook route registered')
   } else {
     logger.warn('teamly webhook NOT registered (no secret or no source)')
+  }
+
+  if (opts.statsToken) {
+    app.route('/', triggerStatsRoute(opts.statsToken, opts.driver))
+    logger.info('trigger-stats route registered')
+  } else {
+    logger.info('trigger-stats route NOT registered (no BOT_STATS_TOKEN)')
   }
 
   // TODO master-plan-2: register telegram webhook route here when we move

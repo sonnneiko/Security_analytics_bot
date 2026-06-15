@@ -49,6 +49,8 @@ async function main() {
     port: config.serverPort,
     teamlyWebhookSecret: teamlySource ? config.teamlyWebhookSecret ?? null : null,
     teamlySource,
+    statsToken: config.botStatsToken ?? null,
+    driver,
   })
 
   const deps: AppDeps = { driver, telegramSource, sbEmployeeIds, botAdminIds }
