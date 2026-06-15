@@ -27,6 +27,11 @@ export class TelegramSource implements DataSource {
 
     const { triggerMessages, events } = await resolveIntents(intents, {
       findTriggerMessage: (chatId, messageId) => findTriggerMessage(this.driver, chatId, messageId),
+      onReactionDropped: (i) =>
+        logger.warn(
+          { chat: i.chatId, message: i.messageId, employee: i.fromId, emoji: i.emoji },
+          'reaction dropped: trigger message not recorded (likely posted while bot was down)',
+        ),
     })
 
     for (const tm of triggerMessages) {

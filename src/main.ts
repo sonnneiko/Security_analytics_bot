@@ -1,3 +1,4 @@
+import { run, type RunnerHandle } from '@grammyjs/runner'
 import { config } from './config.js'
 import { logger } from './logger.js'
 import { getDriver, closeDriver } from './database/client.js'
@@ -55,20 +56,31 @@ async function main() {
 
   bot.catch((err) => logger.error({ err }, 'bot error'))
 
+  let runner: RunnerHandle | undefined
+
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'shutting down')
     await server.close().catch((err) => logger.error({ err }, 'server close failed'))
-    await bot.stop()
+    if (runner?.isRunning()) await runner.stop()
     await closeDriver()
     process.exit(0)
   }
   process.on('SIGINT', () => shutdown('SIGINT'))
   process.on('SIGTERM', () => shutdown('SIGTERM'))
 
-  await bot.start({
-    allowed_updates: ['message', 'message_reaction', 'callback_query'],
-    onStart: (info) =>
-      logger.info({ bot: info.username, sb: sbEmployeeIds.size }, 'bot started'),
+  // grammy runner вместо bot.start(): устойчивый long-polling, который сам
+  // переживает сетевые ошибки getUpdates и не «глохнет» молча (как в work_analyst).
+  await bot.init()
+  runner = run(bot, {
+    runner: { fetch: { allowed_updates: ['message', 'message_reaction', 'callback_query'] } },
+  })
+  logger.info({ bot: bot.botInfo.username, sb: sbEmployeeIds.size }, 'bot started')
+
+  // если polling всё же падает — валим процесс, systemd поднимет заново
+  // (вместо «процесс жив, но бот глухой на сутки»)
+  void runner.task()?.catch((err) => {
+    logger.fatal({ err }, 'polling runner crashed — exiting for restart')
+    process.exit(1)
   })
 }
 

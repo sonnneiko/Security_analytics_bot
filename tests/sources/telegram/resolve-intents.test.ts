@@ -44,4 +44,25 @@ describe('resolveIntents', () => {
     const out = await resolveIntents(intents, { findTriggerMessage: async () => null })
     expect(out.events).toEqual([])
   })
+
+  it('reaction_candidate без матча → вызывает onReactionDropped (чтобы потеря была видна в логах)', async () => {
+    const dropped: Array<{ chatId: number; messageId: number; fromId: number; emoji: string }> = []
+    const intents: EventIntent[] = [{ kind: 'reaction_candidate', chatId: CHAT, messageId: 9, fromId: SB, emoji: '👀', date: D }]
+    const out = await resolveIntents(intents, {
+      findTriggerMessage: async () => null,
+      onReactionDropped: (i) => dropped.push({ chatId: i.chatId, messageId: i.messageId, fromId: i.fromId, emoji: i.emoji }),
+    })
+    expect(out.events).toEqual([])
+    expect(dropped).toEqual([{ chatId: CHAT, messageId: 9, fromId: SB, emoji: '👀' }])
+  })
+
+  it('reaction_candidate с матчем → onReactionDropped НЕ вызывается', async () => {
+    const dropped: unknown[] = []
+    const intents: EventIntent[] = [{ kind: 'reaction_candidate', chatId: CHAT, messageId: 9, fromId: SB, emoji: '👀', date: D }]
+    await resolveIntents(intents, {
+      findTriggerMessage: async () => ({ author_id: EXT }),
+      onReactionDropped: (i) => dropped.push(i),
+    })
+    expect(dropped).toEqual([])
+  })
 })

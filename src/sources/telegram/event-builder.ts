@@ -67,6 +67,9 @@ export function buildIntents(input: EventInput, deps: BuildDeps): EventIntent[] 
 
 export interface ResolveDeps {
   findTriggerMessage: (chatId: number, messageId: number) => Promise<{ author_id: number } | null>
+  // вызывается, когда реакция СБ-сотрудника отбрасывается, потому что исходное
+  // сообщение не найдено в trigger_messages — чтобы потеря не была молчаливой
+  onReactionDropped?: (intent: Extract<EventIntent, { kind: 'reaction_candidate' }>) => void
 }
 
 export async function resolveIntents(
@@ -90,7 +93,10 @@ export async function resolveIntents(
       })
     } else {
       const trig = await deps.findTriggerMessage(intent.chatId, intent.messageId)
-      if (!trig) continue
+      if (!trig) {
+        deps.onReactionDropped?.(intent)
+        continue
+      }
       events.push({
         event_id: `tg:${intent.chatId}:${intent.messageId}:trigger_reaction:${intent.fromId}:${intent.emoji}`,
         employee_id: intent.fromId,

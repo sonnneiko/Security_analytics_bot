@@ -84,10 +84,14 @@ https://51-250-1-2.nip.io/teamly/webhook/<TEAMLY_WEBHOOK_SECRET>
 - `/report month` в ЛС бота → приходит .xlsx.
 
 ## 8. Обновления
-Запускать от пользователя с sudo (НЕ от `sbbot`) — скрипт сам делает файловые шаги от имени `sbbot`, а restart через sudo:
+Деплой — **push с машины оператора** (НЕ на ВМ). `/opt/sb-bot` не git-репозиторий и у ВМ нет доступа к приватному GitHub, поэтому код синхронизируется `rsync`-ом с локальной машины (где есть SSH-ключ к ВМ). Скрипт сам: прогоняет `typecheck`+`test`, заливает `src/`+манифесты, ставит зависимости от имени `sbbot` и рестартит сервис.
 ```bash
-sudo bash /opt/sb-bot/scripts/deploy.sh
+# из корня репозитория, на локальной машине
+bash scripts/deploy.sh
+# переопределить хост/ключ при необходимости:
+SB_VM_HOST=yc-user@158.160.3.16 SB_SSH_KEY=~/.ssh/id_ed25519 bash scripts/deploy.sh
 ```
+> На ВМ выставлен `NODE_ENV=production` (drop-in `/etc/systemd/system/sb-bot.service.d/10-env.conf`) — логи идут plain-JSON без хрупкого pino-pretty transport. Плюс таймер `sb-bot-restart.timer` рестартит бота каждые 4 ч как страховка от тихих зависаний.
 
 ## 9. Аптайм (важно)
 Данные пишутся постоянно, только пока ВМ жива; хранилище — внешний YDB (на ВМ состояния нет).
