@@ -40,8 +40,10 @@ export function startServer(opts: ServerOptions): RunningServer {
   // TODO master-plan-2: register telegram webhook route here when we move
   // from polling to webhook for the bot.
 
-  const server = serve({ fetch: app.fetch, port: opts.port }, (info) => {
-    logger.info({ port: info.port }, 'http server listening')
+  // bind loopback only: наружу сервер не торчит, входящий Teamly webhook идёт
+  // через Caddy (reverse_proxy localhost:8080), дашборд тянет /internal/* по localhost
+  const server = serve({ fetch: app.fetch, port: opts.port, hostname: '127.0.0.1' }, (info) => {
+    logger.info({ port: info.port, hostname: '127.0.0.1' }, 'http server listening')
   })
 
   return {
