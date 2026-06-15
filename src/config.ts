@@ -34,6 +34,7 @@ const ConfigSchema = v.object({
   teamlyRedirectUri: v.optional(v.string()),
   teamlyAuthCode: v.optional(v.string()),
   teamlyWebhookSecret: v.optional(v.string()),
+  botStatsToken: v.optional(v.string()),
 })
 
 export type Config = v.InferOutput<typeof ConfigSchema>
@@ -53,4 +54,5 @@ export const config: Config = v.parse(ConfigSchema, {
   teamlyRedirectUri: process.env.TEAMLY_REDIRECT_URI,
   teamlyAuthCode: process.env.TEAMLY_AUTH_CODE,
   teamlyWebhookSecret: process.env.TEAMLY_WEBHOOK_SECRET,
+  botStatsToken: process.env.BOT_STATS_TOKEN,
 })
