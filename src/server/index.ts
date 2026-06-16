@@ -5,6 +5,7 @@ import { logger } from '../logger.js'
 import { teamlyWebhookRoute } from './teamly-webhook.js'
 import { triggerStatsRoute } from './trigger-stats.js'
 import type { TeamlySource } from '../sources/teamly/teamly-source.js'
+import type { HealthReport } from '../health.js'
 
 export interface ServerOptions {
   port: number
@@ -12,6 +13,8 @@ export interface ServerOptions {
   teamlySource: TeamlySource | null
   statsToken: string | null
   driver: Driver
+  // Если задан — /healthz отдаёт JSON-статус и 200/503; иначе простой 'ok'.
+  health?: () => Promise<HealthReport>
 }
 
 export interface RunningServer {
@@ -21,7 +24,15 @@ export interface RunningServer {
 export function startServer(opts: ServerOptions): RunningServer {
   const app = new Hono()
 
-  app.get('/healthz', (c) => c.text('ok'))
+  const health = opts.health
+  if (health) {
+    app.get('/healthz', async (c) => {
+      const report = await health()
+      return c.json(report, report.ok ? 200 : 503)
+    })
+  } else {
+    app.get('/healthz', (c) => c.text('ok'))
+  }
 
   if (opts.teamlyWebhookSecret && opts.teamlySource) {
     app.route('/', teamlyWebhookRoute(opts.teamlyWebhookSecret, opts.teamlySource))

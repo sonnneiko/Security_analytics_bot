@@ -1,4 +1,11 @@
+import { statfs } from 'node:fs/promises'
 import type { LivenessSnapshot } from './bot/heartbeat.js'
+
+// Процент занятости ФС (для /healthz). Бросает, если statfs недоступен — buildHealth ловит.
+export async function diskUsedPctOf(path = '/'): Promise<number> {
+  const s = await statfs(path)
+  return Math.round((1 - Number(s.bavail) / Number(s.blocks)) * 100)
+}
 
 export interface HealthInputs {
   now: number

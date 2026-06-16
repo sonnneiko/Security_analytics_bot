@@ -5,6 +5,7 @@ import { getDriver, closeDriver } from './database/client.js'
 import { runMigrations } from './database/migrations.js'
 import { upsertEmployee, listEmployees, isEmployee } from './database/queries/employees.js'
 import { isTriggerChat } from './database/queries/trigger-chats.js'
+import { latestEventAt } from './database/queries/telegram-events.js'
 import { getToken, saveToken } from './database/queries/teamly-tokens.js'
 import { TelegramSource } from './sources/telegram/telegram-source.js'
 import { TeamlyApi, type TokenStore } from './sources/teamly/teamly-api.js'
@@ -13,6 +14,14 @@ import { startServer } from './server/index.js'
 import { createBot } from './bot/index.js'
 import type { AppDeps } from './bot/context.js'
 import { withTimeout } from './with-timeout.js'
+import { createLiveness, startHeartbeat } from './bot/heartbeat.js'
+import { buildHealth, diskUsedPctOf } from './health.js'
+
+const HEARTBEAT_INTERVAL_MS = 3 * 60_000
+const HEARTBEAT_TIMEOUT_MS = 10_000
+const HEARTBEAT_MAX_FAILS = 2
+// polling считаем нездоровым, если последняя успешная Telegram-проба старше ~2 интервалов
+const POLLING_STALE_MS = HEARTBEAT_INTERVAL_MS * 2 + HEARTBEAT_TIMEOUT_MS
 
 async function main() {
   logger.info('starting security-analytics-bot')
@@ -46,20 +55,30 @@ async function main() {
 
   const teamlySource = await initTeamlySource(driver, rows)
 
+  const liveness = createLiveness()
+  let runner: RunnerHandle | undefined
+
   const server = startServer({
     port: config.serverPort,
     teamlyWebhookSecret: teamlySource ? config.teamlyWebhookSecret ?? null : null,
     teamlySource,
     statsToken: config.botStatsToken ?? null,
     driver,
+    health: () =>
+      buildHealth({
+        now: Date.now(),
+        runnerRunning: runner?.isRunning() ?? false,
+        liveness: liveness.snapshot(),
+        pollingStaleMs: POLLING_STALE_MS,
+        lastEventAt: () => latestEventAt(driver),
+        diskUsedPct: () => diskUsedPctOf('/'),
+      }),
   })
 
   const deps: AppDeps = { driver, telegramSource, sbEmployeeIds, botAdminIds }
   const bot = createBot(config.botToken, deps)
 
   bot.catch((err) => logger.error({ err }, 'bot error'))
-
-  let runner: RunnerHandle | undefined
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'shutting down')
@@ -88,6 +107,21 @@ async function main() {
     runner: { fetch: { allowed_updates: ['message', 'message_reaction', 'callback_query'] } },
   })
   logger.info({ bot: bot.botInfo.username, sb: sbEmployeeIds.size }, 'bot started')
+  liveness.markOk(Date.now()) // getMe только что прошёл (bot.init)
+
+  // deaf-watchdog: активно пингуем Telegram. Если оглох молча (раннер «работает»,
+  // но getMe не проходит) — валим процесс после K неудач, systemd поднимет заново.
+  startHeartbeat({
+    probe: () => bot.api.getMe(),
+    liveness,
+    intervalMs: HEARTBEAT_INTERVAL_MS,
+    timeoutMs: HEARTBEAT_TIMEOUT_MS,
+    maxFails: HEARTBEAT_MAX_FAILS,
+    onDead: (fails) => {
+      logger.fatal({ fails }, 'telegram heartbeat dead — exiting for restart')
+      process.exit(1)
+    },
+  })
 
   // если polling всё же падает — валим процесс, systemd поднимет заново
   // (вместо «процесс жив, но бот глухой на сутки»)

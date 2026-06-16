@@ -39,6 +39,22 @@ export async function insertEvent(driver: Driver, row: TelegramEventRow): Promis
   })
 }
 
+// MAX(occurred_at) по всей таблице — для /healthz «идёт ли сбор» (epoch ms / null).
+export async function latestEventAt(driver: Driver): Promise<number | null> {
+  return withSession(driver, async (session) => {
+    const result = await session.executeQuery(
+      `SELECT MAX(occurred_at) AS mx FROM telegram_events;`,
+      {},
+      AUTO_TX,
+    )
+    const rows = TypedData.createNativeObjects(result.resultSets[0]) as unknown as Array<{
+      mx: Date | null
+    }>
+    const mx = rows[0]?.mx
+    return mx ? new Date(mx).getTime() : null
+  })
+}
+
 export async function selectEventsForPeriod(
   driver: Driver,
   fromUtc: Date,
