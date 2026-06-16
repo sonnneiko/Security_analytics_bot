@@ -12,6 +12,7 @@ import { TeamlySource } from './sources/teamly/teamly-source.js'
 import { startServer } from './server/index.js'
 import { createBot } from './bot/index.js'
 import type { AppDeps } from './bot/context.js'
+import { withTimeout } from './with-timeout.js'
 
 async function main() {
   logger.info('starting security-analytics-bot')
@@ -70,9 +71,19 @@ async function main() {
   process.on('SIGINT', () => shutdown('SIGINT'))
   process.on('SIGTERM', () => shutdown('SIGTERM'))
 
+  // bot.init() (getMe) к api.telegram.org НЕ имеет таймаута в grammY: если
+  // Telegram недоступен с ВМ (а IP Telegram режутся в РФ), init виснет НАВСЕГДА
+  // ДО старта раннера → процесс жив, но глухой (инцидент 05–15.06). Таймаут +
+  // exit(1) превращает тихое зависание в честный рестарт под systemd.
+  try {
+    await withTimeout(bot.init(), 15_000, 'bot.init')
+  } catch (err) {
+    logger.fatal({ err }, 'bot.init failed/timed out — exiting for restart')
+    process.exit(1)
+  }
+
   // grammy runner вместо bot.start(): устойчивый long-polling, который сам
   // переживает сетевые ошибки getUpdates и не «глохнет» молча (как в work_analyst).
-  await bot.init()
   runner = run(bot, {
     runner: { fetch: { allowed_updates: ['message', 'message_reaction', 'callback_query'] } },
   })
