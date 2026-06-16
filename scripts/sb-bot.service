@@ -2,13 +2,18 @@
 Description=Security Analytics Bot
 After=network-online.target
 Wants=network-online.target
+# Никогда не сдаваться насовсем: init-timeout/heartbeat намеренно валят процесс при
+# недоступном Telegram, и при затяжном блоке это даёт серию рестартов. С дефолтным
+# start-limit systemd ушёл бы в failed и оставил бота мёртвым (инцидент 05.06).
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/sb-bot
 ExecStart=/opt/sb-bot/node_modules/.bin/tsx src/main.ts
 Restart=always
-RestartSec=5
+# 15с между рестартами: не молотим Telegram/IAM в шторм, но восстановление быстрое.
+RestartSec=15
 KillMode=mixed
 TimeoutStopSec=20
 User=sbbot

@@ -1,0 +1,37 @@
+name: sb-bot health report
+
+# Позитивная сводка 3×/день в алёрт-канал. Крутится на инфре GitHub (СНАРУЖИ ВМ),
+# поэтому переживает смерть бота/ВМ/блок Telegram. Реалтайм-падения — отдельно,
+# через внешний uptime-монитор на тот же /healthz.
+on:
+  schedule:
+    - cron: '0 6,11,16 * * *' # 09:00 / 14:00 / 19:00 МСК (UTC+3)
+  workflow_dispatch: {}
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe /healthz and post summary to Telegram
+        env:
+          HEALTH_URL: https://158-160-3-16.nip.io/healthz
+          TG_TOKEN: ${{ secrets.ALERT_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.ALERT_CHAT_ID }}
+        run: |
+          set -uo pipefail
+          code=$(curl -s -o body.json -w '%{http_code}' --max-time 20 "$HEALTH_URL" || echo 000)
+          if [ "$code" = "000" ] || [ ! -s body.json ]; then
+            msg=$'🔴 sb-bot НЕ ОТВЕЧАЕТ\nhealthz недоступен (HTTP '"$code"')'
+          else
+            ok=$(jq -r '.ok' body.json)
+            polling=$(jq -r 'if .polling then "жив" else "НЕТ" end' body.json)
+            ydb=$(jq -r 'if .ydb then "ок" else "НЕТ" end' body.json)
+            ev=$(jq -r 'if .lastEventAgeMin == null then "нет данных" else ((.lastEventAgeMin|tostring) + " мин назад") end' body.json)
+            disk=$(jq -r 'if .diskUsedPct == null then "?" else ((.diskUsedPct|tostring) + "%") end' body.json)
+            if [ "$ok" = "true" ] && [ "$code" = "200" ]; then head='✅ sb-bot ок'; else head="⚠️ sb-bot ПРОБЛЕМА (HTTP $code)"; fi
+            msg="$head"$'\n'"polling: $polling"$'\n'"YDB: $ydb"$'\n'"последнее событие: $ev"$'\n'"диск: $disk"
+          fi
+          curl -s --max-time 20 "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "text=${msg}" \
+            -o /dev/null -w 'sendMessage HTTP %{http_code}\n'
