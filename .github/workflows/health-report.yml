@@ -5,7 +5,7 @@ name: sb-bot health report
 # через внешний uptime-монитор на тот же /healthz.
 on:
   schedule:
-    - cron: '0 6,11,16 * * *' # 09:00 / 14:00 / 19:00 МСК (UTC+3)
+    - cron: '0 6,12,17 * * *' # 09:00 / 15:00 / 20:00 МСК (UTC+3)
   workflow_dispatch: {}
 
 jobs:
