@@ -13,7 +13,7 @@ import { TeamlySource } from './sources/teamly/teamly-source.js'
 import { startServer } from './server/index.js'
 import { createBot } from './bot/index.js'
 import type { AppDeps } from './bot/context.js'
-import { withTimeout } from './with-timeout.js'
+import { initWithRetry } from './bot/init-with-retry.js'
 import { createLiveness, startHeartbeat } from './bot/heartbeat.js'
 import { buildHealth, diskUsedPctOf } from './health.js'
 
@@ -90,16 +90,23 @@ async function main() {
   process.on('SIGINT', () => shutdown('SIGINT'))
   process.on('SIGTERM', () => shutdown('SIGTERM'))
 
-  // bot.init() (getMe) к api.telegram.org НЕ имеет таймаута в grammY: если
-  // Telegram недоступен с ВМ (а IP Telegram режутся в РФ), init виснет НАВСЕГДА
-  // ДО старта раннера → процесс жив, но глухой (инцидент 05–15.06). Таймаут +
-  // exit(1) превращает тихое зависание в честный рестарт под systemd.
-  try {
-    await withTimeout(bot.init(), 15_000, 'bot.init')
-  } catch (err) {
-    logger.fatal({ err }, 'bot.init failed/timed out — exiting for restart')
-    process.exit(1)
-  }
+  // bot.init() (getMe) к api.telegram.org НЕ имеет таймаута в grammY: если Telegram
+  // недоступен с ВМ (IP Telegram режутся в РФ), init виснет НАВСЕГДА до старта раннера
+  // → процесс жив, но глухой (инцидент 05–15.06). Здесь НЕ валим процесс, а тихо
+  // переподключаемся с backoff: бот остаётся жив и сам оживает, когда Telegram вернётся.
+  // polling стартует только после успеха; до этого /healthz отдаёт polling=false.
+  await initWithRetry({
+    init: () => bot.init(),
+    timeoutMs: 15_000,
+    baseDelayMs: 5_000,
+    maxDelayMs: 60_000,
+    onAttemptFail: (attempt, err, nextDelayMs) =>
+      logger.error(
+        { attempt, err, nextRetryMs: nextDelayMs },
+        'bot.init failed — retrying (bot stays up, not polling yet)',
+      ),
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  })
 
   // grammy runner вместо bot.start(): устойчивый long-polling, который сам
   // переживает сетевые ошибки getUpdates и не «глохнет» молча (как в work_analyst).
