@@ -39,11 +39,14 @@ export async function insertEvent(driver: Driver, row: TelegramEventRow): Promis
   })
 }
 
-// MAX(occurred_at) по всей таблице — для /healthz «идёт ли сбор» (epoch ms / null).
+// MAX(occurred_at) среди trigger-событий — для /healthz «идёт ли сбор» (epoch ms / null).
+// Фильтр по типам как в selectEventsForPeriod: legacy-строки старой схемы (reaction/
+// message) не должны выдавать ложно-свежий сбор.
 export async function latestEventAt(driver: Driver): Promise<number | null> {
   return withSession(driver, async (session) => {
     const result = await session.executeQuery(
-      `SELECT MAX(occurred_at) AS mx FROM telegram_events;`,
+      `SELECT MAX(occurred_at) AS mx FROM telegram_events
+       WHERE event_type IN ('trigger_reply', 'trigger_reaction');`,
       {},
       AUTO_TX,
     )
