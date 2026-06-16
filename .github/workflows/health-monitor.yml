@@ -1,0 +1,35 @@
+name: sb-bot health monitor
+
+# Реалтайм-детект падения, СНАРУЖИ ВМ (инфра GitHub). Каждые ~15 мин дёргает
+# публичный /healthz и постит в канал ТОЛЬКО когда плохо. Заменяет сторонний
+# uptime-монитор — аккаунтов не нужно. Cron у GitHub best-effort (возможна задержка).
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe /healthz, alert channel on failure
+        env:
+          HEALTH_URL: https://158-160-3-16.nip.io/healthz
+          TG_TOKEN: ${{ secrets.ALERT_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.ALERT_CHAT_ID }}
+        run: |
+          set -uo pipefail
+          code=$(curl -s -o body.json -w '%{http_code}' --max-time 20 "$HEALTH_URL" || echo 000)
+          if [ "$code" = "200" ] && [ "$(jq -r '.ok' body.json 2>/dev/null || echo false)" = "true" ]; then
+            echo "healthy — no alert"
+            exit 0
+          fi
+          if [ "$code" = "000" ]; then
+            msg='🔴 sb-bot НЕ ОТВЕЧАЕТ (healthz недоступен). Возможна блокировка Telegram или смерть ВМ.'
+          else
+            msg="⚠️ sb-bot нездоров (HTTP $code): $(head -c 300 body.json 2>/dev/null)"
+          fi
+          curl -s --max-time 20 "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "text=${msg}" \
+            -o /dev/null -w 'alert sent HTTP %{http_code}\n'
